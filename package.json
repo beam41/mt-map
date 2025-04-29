@@ -1,0 +1,36 @@
+{
+  "name": "mt-map",
+  "version": "1.0.0",
+  "main": "build.js",
+  "scripts": {
+    "generate:element": "node ./generateElement.mjs",
+    "build:component": "rimraf ./dist && node ./buildComponent.mjs",
+    "build": "rimraf ./dist && npm run build:component && npm run generate:element && node ./build.mjs",
+    "serve": "http-server ./dist -d false --cors --port 3000",
+    "dev": "nodemon",
+    "lint": "prettier --check ./src && eslint ./src",
+    "lint:fix": "prettier --write ./src && eslint --fix ./src"
+  },
+  "author": "ASEAN Motor Town Club",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@eslint/css": "^0.6.0",
+    "@eslint/js": "^9.24.0",
+    "@eslint/json": "^0.11.0",
+    "@types/three": "^0.175.0",
+    "cheerio": "^1.0.0",
+    "esbuild": "^0.25.2",
+    "eslint": "^9.24.0",
+    "globals": "^16.0.0",
+    "html-minifier": "^4.0.0",
+    "nodemon": "^3.1.9",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.29.1"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1",
+    "rimraf": "^6.0.1"
+  }
+}

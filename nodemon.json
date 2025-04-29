@@ -1,0 +1,8 @@
+{
+  "restartable": "rs",
+  "ignore": [".git", "node_modules/", "dist/", "*.generated.ts"],
+  "watch": ["src/", "components/"],
+  "exec": "rimraf ./dist && tsc --project ./components/tsconfig.json --declaration --emitDeclarationOnly --outDir ./dist/ && npm run generate:element && node ./buildComponent.mjs --dev && node ./build.mjs --dev && http-server ./dist -d false --cors --port 3000  || exit 1",
+  "ext": "js,ts,css,html",
+  "delay": "2"
+}
