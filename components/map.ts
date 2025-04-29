@@ -33,6 +33,8 @@ type MotorTownMapEvent = {
 
 type MotorTownMapEventKey = keyof MotorTownMapEvent;
 
+const FIT_PADDING = 128;
+
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface MotorTownMap {
   addEventListener<K extends MotorTownMapEventKey>(
@@ -214,15 +216,43 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvasCtx.restore();
   }
 
-  private zoomFit() {
+  zoomFit() {
     if (!this.mapCanvasCtx) {
       console.error('mapCanvas not found');
       return;
     }
 
-    this.currentScale = 1;
-    this.offsetX = 0;
-    this.offsetY = 0;
+    if (this.trackMode && this.points) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      this.points.forEach((point) => {
+        minX = Math.min(point.mapPosition.x, minX);
+        minY = Math.min(point.mapPosition.y, minY);
+        maxX = Math.max(point.mapPosition.x, maxX);
+        maxY = Math.max(point.mapPosition.y, maxY);
+      });
+      const deltaX = maxX - minX;
+      const deltaY = maxY - minY;
+      const currentScaleX = (this.mapCanvas.width - scaled(FIT_PADDING * 2)) / deltaX;
+      const currentScaleY = (this.mapCanvas.height - scaled(FIT_PADDING * 2)) / deltaY;
+      if (currentScaleX < currentScaleY) {
+        this.currentScale = Math.min(40, currentScaleX);
+        this.offsetX = -minX * this.currentScale + scaled(FIT_PADDING);
+        const midpointY = (minY + maxY) / 2;
+        this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
+      } else {
+        this.currentScale = Math.min(40, currentScaleY);
+        this.offsetY = -minY * this.currentScale + scaled(FIT_PADDING);
+        const midpointX = (minX + maxX) / 2;
+        this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
+      }
+    } else {
+      this.currentScale = 1;
+      this.offsetX = 0;
+      this.offsetY = 0;
+    }
 
     this.updateRecenterBtn(true);
     this.drawMap();
@@ -281,7 +311,10 @@ export class MotorTownMap extends HTMLElement {
       this.offsetY += scaled(dy);
       this.updateRecenterBtn(false);
       this.drawMap();
-    } else if (this.points) {
+      return;
+    }
+
+    if (this.points) {
       const hoverX = (scaled(clientX) - scaled(rect.left) - this.offsetX) / this.currentScale;
       const hoverY = (scaled(clientY) - scaled(rect.top) - this.offsetY) / this.currentScale;
       const selectRadius = this.getSelectRadius();
@@ -301,10 +334,10 @@ export class MotorTownMap extends HTMLElement {
       this.updateHovered(hoveredIndex);
       if (hoveredIndex !== undefined) {
         this.mapCanvas.style.cursor = 'pointer';
-      } else {
-        this.mapCanvas.style.cursor = 'grab';
+        return;
       }
     }
+    this.mapCanvas.style.cursor = 'grab';
   };
 
   private clickEvent = () => {

@@ -4,7 +4,7 @@
   "main": "build.js",
   "scripts": {
     "generate:element": "node ./generateElement.mjs",
-    "build:component": "rimraf ./dist && node ./buildComponent.mjs",
+    "build:component": "rimraf ./dist && tsc --project ./components/tsconfig.json --declaration --emitDeclarationOnly --outDir ./dist/ && node ./buildComponent.mjs",
     "build": "rimraf ./dist && npm run build:component && npm run generate:element && node ./build.mjs",
     "serve": "http-server ./dist -d false --cors --port 3000",
     "dev": "nodemon",
