@@ -29,6 +29,7 @@ export type Quaternion = {
 
 type MotorTownMapEvent = {
   'mt-map:point-click': CustomEvent<{ index: number }>;
+  'mt-map:point-hover': CustomEvent<{ index: number | undefined }>;
 };
 
 type MotorTownMapEventKey = keyof MotorTownMapEvent;
@@ -51,11 +52,12 @@ export interface MotorTownMap {
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class MotorTownMap extends HTMLElement {
-  static observedAttributes = ['track-mode', 'point-color', 'point-selected-color'];
+  static observedAttributes = ['track-mode', 'point-color', 'point-selected-color', 'point-hover-color'] as const;
 
   private trackMode = false;
   private pointColor = '#dfb300';
   private pointSelectedColor = '#002cdf';
+  private pointHoverColor: string | undefined;
 
   private points: PointsLocal[] | undefined = undefined;
 
@@ -205,7 +207,12 @@ export class MotorTownMap extends HTMLElement {
 
         this.mapCanvasCtx.beginPath();
         this.mapCanvasCtx.arc(mp.x, mp.y, radius, 0, 2 * Math.PI);
-        this.mapCanvasCtx.fillStyle = i === this.selectedIndex ? this.pointSelectedColor : this.pointColor;
+        this.mapCanvasCtx.fillStyle =
+          i === this.selectedIndex
+            ? this.pointSelectedColor
+            : i === this.hoveredIndex && this.pointHoverColor
+              ? this.pointHoverColor
+              : this.pointColor;
         this.mapCanvasCtx.fill();
         this.mapCanvasCtx.strokeStyle = 'black';
         this.mapCanvasCtx.lineWidth = lineWidth;
@@ -267,10 +274,17 @@ export class MotorTownMap extends HTMLElement {
   }
 
   private updateHovered(index: number | undefined) {
-    this.hoveredIndex = index;
-    // hoveredInfo.style.display = index === undefined ? 'none' : 'unset';
-    // hoveredInfo.innerText = deliveryPoints[index ?? 0].name;
-    this.drawMap();
+    if (this.hoveredIndex !== index) {
+      this.hoveredIndex = index;
+      const event = new CustomEvent('mt-map:point-hover' as MotorTownMapEventKey, {
+        bubbles: false,
+        detail: { index: index },
+      }) satisfies MotorTownMapEvent['mt-map:point-hover'];
+
+      // Dispatch the event.
+      this.dispatchEvent(event);
+      this.drawMap();
+    }
   }
 
   private wheelEvent = (e: WheelEvent) => {
@@ -467,7 +481,7 @@ export class MotorTownMap extends HTMLElement {
     window.removeEventListener('resize', this.resizeEvent);
   }
 
-  attributeChangedCallback(name: 'track-mode' | 'point-color' | 'point-selected-color', _: string, newValue: string) {
+  attributeChangedCallback(name: (typeof MotorTownMap.observedAttributes)[number], _: string, newValue: string) {
     switch (name) {
       case 'track-mode': {
         const v = newValue.trim();
@@ -484,6 +498,12 @@ export class MotorTownMap extends HTMLElement {
       case 'point-selected-color': {
         const v = newValue.trim();
         this.pointSelectedColor = v;
+        this.drawMap();
+        break;
+      }
+      case 'point-hover-color': {
+        const v = newValue.trim();
+        this.pointHoverColor = v;
         this.drawMap();
         break;
       }
