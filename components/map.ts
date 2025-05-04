@@ -116,12 +116,11 @@ export class MotorTownMap extends HTMLElement {
     return { x: xp, y: yp };
   }
 
-  private drawMap() {
+  drawMap() {
     if (!this.mapCanvasCtx) {
       console.error('mapCanvas not found');
       return;
     }
-    this.mapCanvasCtx.reset();
     this.mapCanvasCtx.fillStyle = ' #375d87';
     this.mapCanvasCtx.fillRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
 
@@ -357,7 +356,7 @@ export class MotorTownMap extends HTMLElement {
   private clickEvent = () => {
     // Only proceed if not dragging.
     if (this.isDragging) return;
-    if (!this.hoveredIndex) return;
+    if (this.hoveredIndex === undefined) return;
     this.mapCanvas.style.cursor = 'pointer';
 
     this.selectedIndex = this.hoveredIndex;
