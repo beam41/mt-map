@@ -1,31 +1,15 @@
-export function isMobileAndTablet() {
-  /* eslint-disable */
-  let check = false;
-  (function (a) {
-    if (
-      /(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(
-        a,
-      ) ||
-      /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw-(n|u)|c55\/|capi|ccwa|cdm-|cell|chtm|cldc|cmd-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc-s|devi|dica|dmob|do(c|p)o|ds(12|-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(-|_)|g1 u|g560|gene|gf-5|g-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd-(m|p|t)|hei-|hi(pt|ta)|hp( i|ip)|hs-c|ht(c(-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i-(20|go|ma)|i230|iac( |-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|-[a-w])|libw|lynx|m1-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|-([1-8]|c))|phil|pire|pl(ay|uc)|pn-2|po(ck|rt|se)|prox|psio|pt-g|qa-a|qc(07|12|21|32|60|-[2-7]|i-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h-|oo|p-)|sdk\/|se(c(-|0|1)|47|mc|nd|ri)|sgh-|shar|sie(-|m)|sk-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h-|v-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl-|tdg-|tel(i|m)|tim-|t-mo|to(pl|sh)|ts(70|m-|m3|m5)|tx-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas-|your|zeto|zte-/i.test(
-        a.substr(0, 4),
-      )
-    )
-      check = true;
-  })(navigator.userAgent || navigator.vendor || (window as any).opera);
-  return check;
-  /* eslint-enable */
-}
-
 import centerSvg from './center.svg';
+import { isMobileAndTablet } from './utils/isMobileAndTablet';
+import { squaredHypot } from './utils/squaredHypot';
 
 export type Points = {
   position: Vector2;
-  rotation?: Quaternion;
+  yaw?: number;
 };
 
 export type PointsLocal = {
   position: Vector2;
-  rotation?: Quaternion;
+  yaw?: number;
   mapPosition: Vector2;
 };
 
@@ -64,6 +48,12 @@ export interface MotorTownMap {
   ): void;
 }
 
+const MAP_SIZE = 4096;
+const MAX_SCALE = 50;
+const MIN_SCALE = 0.1;
+
+const SQRT_3 = 1.7320508075688772;
+
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class MotorTownMap extends HTMLElement {
   static observedAttributes = ['track-mode', 'point-color', 'point-selected-color', 'point-hover-color'] as const;
@@ -99,26 +89,19 @@ export class MotorTownMap extends HTMLElement {
     return x * (this.isMobileAndTablet ? 1 : window.devicePixelRatio);
   }
 
-  private getMarkerScale() {
-    const markerScale = this.scaled(10 / this.currentScale);
-    return markerScale;
-  }
-
-  private baseCheckpointRadius = () => this.scaled(0.5);
-  private baseArrowLength = () => this.scaled(2);
-  private baseArrowHeadLength = () => this.scaled(1);
-  private baseConnectingLineWidth = () => this.scaled(0.2);
-  private baseArrowLineWidth = () => this.scaled(0.2);
-  private baseLabelFontSize = () => this.scaled(0.6);
-  private selectRadius = () => this.baseCheckpointRadius() + this.scaled(0.5);
+  private baseCheckpointRadius = () => this.scaled(7.5);
+  private baseCheckpointOutlineRadius = () => this.scaled(1.5);
+  private baseArrowLength = () => this.scaled(20);
+  private baseArrowHeadLength = () => this.scaled(15);
+  private baseConnectingLineWidth = () => this.scaled(3);
+  private baseArrowLineWidth = () => this.scaled(3);
+  private selectRadius = () => {
+    const r = this.baseCheckpointRadius() + this.scaled(3);
+    return r * r;
+  };
 
   private selectedIndex: number | undefined = undefined;
   private hoveredIndex: number | undefined = undefined;
-
-  private getSelectRadius() {
-    const selectRadius = (this.baseCheckpointRadius() + this.scaled(0.5)) * this.getMarkerScale();
-    return selectRadius;
-  }
 
   setPoint(points: Points[]) {
     this.points = points.map((point) => ({
@@ -130,13 +113,69 @@ export class MotorTownMap extends HTMLElement {
   private transformPoint(point: Vector2) {
     const x = point.x,
       y = point.y;
-    const maxSize = Math.max(this.mapCanvas.width, this.mapCanvas.height);
-    const xp = ((x + 1280000) / 2200000) * maxSize;
-    const yp = ((y + 320000) / 2200000) * maxSize;
+    const xp = ((x + 1280000) / 2200000) * MAP_SIZE;
+    const yp = ((y + 320000) / 2200000) * MAP_SIZE;
     return { x: xp, y: yp };
   }
 
-  drawMap() {
+  private getCanvasPosition(point: Vector2) {
+    return { x: point.x * this.currentScale + this.offsetX, y: point.y * this.currentScale + this.offsetY };
+  }
+
+  private prevMapLoaded: boolean | undefined;
+  private prevOffsetX: number | undefined;
+  private prevOffsetY: number | undefined;
+  private prevCurrentScale: number | undefined;
+  private prevMapCanvasWidth: number | undefined;
+  private prevMapCanvasHeight: number | undefined;
+  private prevPoints: PointsLocal[] | undefined;
+  private prevTrackMode: boolean | undefined;
+  private prevPointColor: string | undefined;
+  private prevPointSelectedColor: string | undefined;
+  private prevPointHoverColor: string | undefined;
+  private prevSelectedIndex: number | undefined;
+  private prevHoveredIndex: number | undefined;
+
+  private stateChange() {
+    const changed =
+      this.mapLoaded !== this.prevMapLoaded ||
+      this.offsetX !== this.prevOffsetX ||
+      this.offsetY !== this.prevOffsetY ||
+      this.currentScale !== this.prevCurrentScale ||
+      this.mapCanvas.width !== this.prevMapCanvasWidth ||
+      this.mapCanvas.height !== this.prevMapCanvasHeight ||
+      this.points !== this.prevPoints ||
+      this.trackMode !== this.prevTrackMode ||
+      this.pointColor !== this.prevPointColor ||
+      this.pointSelectedColor !== this.prevPointSelectedColor ||
+      this.pointHoverColor !== this.prevPointHoverColor ||
+      this.selectedIndex !== this.prevSelectedIndex ||
+      this.hoveredIndex !== this.prevHoveredIndex;
+    if (changed) {
+      this.prevMapLoaded = this.mapLoaded;
+      this.prevOffsetX = this.offsetX;
+      this.prevOffsetY = this.offsetY;
+      this.prevCurrentScale = this.currentScale;
+      this.prevMapCanvasWidth = this.mapCanvas.width;
+      this.prevMapCanvasHeight = this.mapCanvas.height;
+      this.prevPoints = this.points;
+      this.prevTrackMode = this.trackMode;
+      this.prevPointColor = this.pointColor;
+      this.prevPointSelectedColor = this.pointSelectedColor;
+      this.prevPointHoverColor = this.pointHoverColor;
+      this.prevSelectedIndex = this.selectedIndex;
+      this.prevHoveredIndex = this.hoveredIndex;
+    }
+    return changed;
+  }
+
+  private animationRequestId: number | undefined;
+
+  private drawMap = () => {
+    this.animationRequestId = window.requestAnimationFrame(this.drawMap);
+    if (!this.stateChange()) {
+      return;
+    }
     if (!this.mapCanvasCtx) {
       console.error('mapCanvas not found');
       return;
@@ -144,65 +183,57 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvasCtx.fillStyle = ' #375d87';
     this.mapCanvasCtx.fillRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
 
-    this.mapCanvasCtx.save();
-    this.mapCanvasCtx.translate(this.offsetX, this.offsetY);
-    this.mapCanvasCtx.scale(this.currentScale, this.currentScale);
-
-    let mapWidth = this.mapCanvas.width;
-    let mapHeight = this.mapCanvas.height;
     // Draw the map image.
     if (this.mapImage && this.mapLoaded) {
-      if (mapWidth > mapHeight) {
-        mapHeight = mapWidth * (this.mapImage.height / this.mapImage.width);
-      } else {
-        mapWidth = mapHeight * (this.mapImage.width / this.mapImage.height);
-      }
       this.mapCanvasCtx.imageSmoothingEnabled = false;
-      this.mapCanvasCtx.drawImage(this.mapImage, 0, 0, mapWidth, mapHeight);
-    } else if (mapWidth > mapHeight) {
-      mapHeight = mapWidth;
-    } else {
-      mapWidth = mapHeight;
+      this.mapCanvasCtx.drawImage(
+        this.mapImage,
+        this.offsetX,
+        this.offsetY,
+        MAP_SIZE * this.currentScale,
+        MAP_SIZE * this.currentScale,
+      );
     }
 
     if (this.points) {
-      const markerScale = this.getMarkerScale();
       // Draw each waypoint with its arrow and label.
-      const lineWidth = this.scaled(0.1 * markerScale);
-      const radius = this.baseCheckpointRadius() * markerScale;
+      const lineWidth = this.baseCheckpointOutlineRadius();
+      const radius = this.baseCheckpointRadius();
       const arrowLength = this.baseArrowLength();
       const arrowHeadLength = this.baseArrowHeadLength();
       const arrowLineLength = this.baseArrowLineWidth();
       const connectingLineWidth = this.baseConnectingLineWidth();
+      const arrowBodyLength = (arrowLength * SQRT_3) / 2;
 
       if (this.trackMode) {
         // Draw connecting polyline.
+        const mp0 = this.getCanvasPosition(this.points[0].mapPosition);
         this.mapCanvasCtx.beginPath();
-        this.mapCanvasCtx.moveTo(this.points[0].mapPosition.x, this.points[0].mapPosition.y);
+        this.mapCanvasCtx.moveTo(mp0.x, mp0.y);
         for (let i = 1; i < this.points.length; i++) {
-          const pt = this.points[i];
-          this.mapCanvasCtx.lineTo(pt.mapPosition.x, pt.mapPosition.y);
+          const mp = this.getCanvasPosition(this.points[i].mapPosition);
+          this.mapCanvasCtx.lineTo(mp.x, mp.y);
         }
         this.mapCanvasCtx.strokeStyle = 'white';
-        this.mapCanvasCtx.lineWidth = connectingLineWidth * markerScale;
+        this.mapCanvasCtx.lineWidth = connectingLineWidth;
         this.mapCanvasCtx.stroke();
       }
 
       for (let i = 0; i < this.points.length; i++) {
         const wp = this.points[i];
-        const mp = wp.mapPosition;
+        const mp = this.getCanvasPosition(wp.mapPosition);
         if (this.trackMode) {
-          const yaw = 2 * Math.atan2(wp.rotation?.z ?? 0, wp.rotation?.w ?? 0);
-          const dx = arrowLength * markerScale * Math.cos(yaw);
-          const dy = arrowLength * markerScale * Math.sin(yaw);
-          const arrowBodyLength = (arrowLength * Math.sqrt(3)) / 2;
-          const dxBody = arrowBodyLength * markerScale * Math.cos(yaw);
-          const dyBody = arrowBodyLength * markerScale * Math.sin(yaw);
+          //draw arrow
+          const yaw = wp.yaw ?? 0;
+          const dx = arrowLength * Math.cos(yaw);
+          const dy = arrowLength * Math.sin(yaw);
+          const dxBody = arrowBodyLength * Math.cos(yaw);
+          const dyBody = arrowBodyLength * Math.sin(yaw);
           this.mapCanvasCtx.beginPath();
           this.mapCanvasCtx.moveTo(mp.x, mp.y);
           this.mapCanvasCtx.lineTo(mp.x + dxBody, mp.y + dyBody);
           this.mapCanvasCtx.strokeStyle = 'red';
-          this.mapCanvasCtx.lineWidth = arrowLineLength * markerScale;
+          this.mapCanvasCtx.lineWidth = arrowLineLength;
           this.mapCanvasCtx.stroke();
           const fromX = mp.x;
           const fromY = mp.y;
@@ -212,12 +243,12 @@ export class MotorTownMap extends HTMLElement {
           this.mapCanvasCtx.beginPath();
           this.mapCanvasCtx.moveTo(toX, toY);
           this.mapCanvasCtx.lineTo(
-            toX - arrowHeadLength * markerScale * Math.cos(angle - Math.PI / 6),
-            toY - arrowHeadLength * markerScale * Math.sin(angle - Math.PI / 6),
+            toX - arrowHeadLength * Math.cos(angle - Math.PI / 6),
+            toY - arrowHeadLength * Math.sin(angle - Math.PI / 6),
           );
           this.mapCanvasCtx.lineTo(
-            toX - arrowHeadLength * markerScale * Math.cos(angle + Math.PI / 6),
-            toY - arrowHeadLength * markerScale * Math.sin(angle + Math.PI / 6),
+            toX - arrowHeadLength * Math.cos(angle + Math.PI / 6),
+            toY - arrowHeadLength * Math.sin(angle + Math.PI / 6),
           );
           this.mapCanvasCtx.closePath();
           this.mapCanvasCtx.fillStyle = 'red';
@@ -238,9 +269,7 @@ export class MotorTownMap extends HTMLElement {
         this.mapCanvasCtx.stroke();
       }
     }
-
-    this.mapCanvasCtx.restore();
-  }
+  };
 
   zoomFit() {
     if (!this.mapCanvasCtx) {
@@ -261,27 +290,30 @@ export class MotorTownMap extends HTMLElement {
       });
       const deltaX = maxX - minX;
       const deltaY = maxY - minY;
-      const currentScaleX = (this.mapCanvas.width - this.scaled(FIT_PADDING * 2)) / deltaX;
-      const currentScaleY = (this.mapCanvas.height - this.scaled(FIT_PADDING * 2)) / deltaY;
+      const currentScaleX = (this.mapCanvas.width - FIT_PADDING * 2) / deltaX;
+      const currentScaleY = (this.mapCanvas.height - FIT_PADDING * 2) / deltaY;
       if (currentScaleX < currentScaleY) {
-        this.currentScale = Math.min(40, currentScaleX);
-        this.offsetX = -minX * this.currentScale + this.scaled(FIT_PADDING);
+        this.currentScale = Math.min(MAX_SCALE, currentScaleX);
+        this.offsetX = -minX * this.currentScale + FIT_PADDING;
         const midpointY = (minY + maxY) / 2;
         this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
       } else {
-        this.currentScale = Math.min(40, currentScaleY);
-        this.offsetY = -minY * this.currentScale + this.scaled(FIT_PADDING);
+        this.currentScale = Math.min(MAX_SCALE, currentScaleY);
+        this.offsetY = -minY * this.currentScale + FIT_PADDING;
         const midpointX = (minX + maxX) / 2;
         this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
       }
     } else {
-      this.currentScale = 1;
-      this.offsetX = 0;
-      this.offsetY = 0;
+      const currentScaleX = this.mapCanvas.width / MAP_SIZE;
+      const currentScaleY = this.mapCanvas.height / MAP_SIZE;
+      this.currentScale = Math.max(MIN_SCALE, Math.min(currentScaleX, currentScaleY));
+      const midpointY = MAP_SIZE / 2;
+      this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
+      const midpointX = MAP_SIZE / 2;
+      this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
     }
 
     this.updateRecenterBtn(true);
-    this.drawMap();
   }
 
   private updateRecenterBtn(centered: boolean) {
@@ -302,26 +334,24 @@ export class MotorTownMap extends HTMLElement {
 
       // Dispatch the event.
       this.dispatchEvent(event);
-      this.drawMap();
     }
   }
 
   private wheelEvent = (e: WheelEvent) => {
     e.preventDefault();
     const rect = this.mapCanvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mouseX = this.scaled(e.clientX - rect.left);
+    const mouseY = this.scaled(e.clientY - rect.top);
     const zoomFactor = Math.sign(e.deltaY) * -0.1;
     const worldX = (mouseX - this.offsetX) / this.currentScale;
     const worldY = (mouseY - this.offsetY) / this.currentScale;
     let nextCurrentScale = this.currentScale * (1 + zoomFactor);
-    nextCurrentScale = Math.max(1, Math.min(50, nextCurrentScale));
+    nextCurrentScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, nextCurrentScale));
     if (nextCurrentScale !== this.currentScale) {
       this.currentScale = nextCurrentScale;
       this.offsetX = mouseX - worldX * this.currentScale;
       this.offsetY = mouseY - worldY * this.currentScale;
       this.updateRecenterBtn(false);
-      this.drawMap();
     }
   };
 
@@ -343,20 +373,19 @@ export class MotorTownMap extends HTMLElement {
       this.offsetX += this.scaled(dx);
       this.offsetY += this.scaled(dy);
       this.updateRecenterBtn(false);
-      this.drawMap();
       return;
     }
 
     if (this.points) {
-      const hoverX = (this.scaled(clientX) - this.scaled(rect.left) - this.offsetX) / this.currentScale;
-      const hoverY = (this.scaled(clientY) - this.scaled(rect.top) - this.offsetY) / this.currentScale;
-      const selectRadius = this.getSelectRadius();
+      const hoverX = this.scaled(clientX - rect.left);
+      const hoverY = this.scaled(clientY - rect.top);
+      const selectRadius = this.selectRadius();
 
       let hoveredIndex: number | undefined;
       let closest = Infinity;
       for (let i = 0; i < this.points.length; i++) {
-        const pt = this.points[i].mapPosition;
-        const dist = Math.hypot(hoverX - pt.x, hoverY - pt.y);
+        const mp = this.getCanvasPosition(this.points[i].mapPosition);
+        const dist = squaredHypot(hoverX - mp.x, hoverY - mp.y);
 
         if (this.selectedIndex !== i && dist <= selectRadius && dist <= closest) {
           hoveredIndex = i;
@@ -388,8 +417,6 @@ export class MotorTownMap extends HTMLElement {
 
     // Dispatch the event.
     this.dispatchEvent(event);
-
-    this.drawMap();
   };
 
   private mouseDownEvent = (e: MouseEvent | TouchEvent) => {
@@ -410,11 +437,7 @@ export class MotorTownMap extends HTMLElement {
     const canvasBound = this.mapCanvas.getBoundingClientRect();
     this.mapCanvas.width = this.scaled(canvasBound.width);
     this.mapCanvas.height = this.scaled(canvasBound.height);
-    if (this.points) {
-      this.setPoint(this.points);
-    }
     this.updateRecenterBtn(false);
-    this.drawMap();
   };
 
   private recenterClick = () => {
@@ -427,10 +450,6 @@ export class MotorTownMap extends HTMLElement {
 
     this.mapImage.onload = () => {
       this.mapLoaded = true;
-      this.currentScale = 1;
-      this.offsetX = 0;
-      this.offsetY = 0;
-      this.drawMap();
     };
     this.mapImage.src = 'map.png';
 
@@ -485,6 +504,8 @@ export class MotorTownMap extends HTMLElement {
     const canvasBound = this.mapCanvas.getBoundingClientRect();
     this.mapCanvas.width = this.scaled(canvasBound.width);
     this.mapCanvas.height = this.scaled(canvasBound.height);
+    this.zoomFit();
+    window.requestAnimationFrame(this.drawMap);
   }
 
   disconnectedCallback() {
@@ -499,6 +520,9 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvas.removeEventListener('touchend', this.mouseUpEvent);
     this.recenterButton.removeEventListener('click', this.recenterClick);
     window.removeEventListener('resize', this.resizeEvent);
+    if (this.animationRequestId !== undefined) {
+      window.cancelAnimationFrame(this.animationRequestId);
+    }
   }
 
   attributeChangedCallback(name: (typeof MotorTownMap.observedAttributes)[number], _: string, newValue: string) {
@@ -506,25 +530,21 @@ export class MotorTownMap extends HTMLElement {
       case 'track-mode': {
         const v = newValue.trim();
         this.trackMode = v !== '0' && v !== 'false';
-        this.drawMap();
         break;
       }
       case 'point-color': {
         const v = newValue.trim();
         this.pointColor = v;
-        this.drawMap();
         break;
       }
       case 'point-selected-color': {
         const v = newValue.trim();
         this.pointSelectedColor = v;
-        this.drawMap();
         break;
       }
       case 'point-hover-color': {
         const v = newValue.trim();
         this.pointHoverColor = v;
-        this.drawMap();
         break;
       }
     }
