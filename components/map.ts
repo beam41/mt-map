@@ -1,15 +1,19 @@
 import centerSvg from './center.svg';
+import rangeSvg from './range.svg';
 import { isMobileAndTablet } from './utils/isMobileAndTablet';
 import { squaredHypot } from './utils/squaredHypot';
+import { rotatePoints } from './utils/rotatePoints';
 
-export type Points = {
+export type Point = {
   position: Vector2;
   yaw?: number;
+  scaleY?: number;
 };
 
-export type PointsLocal = {
+export type PointLocal = {
   position: Vector2;
   yaw?: number;
+  scaleY?: number;
   mapPosition: Vector2;
 };
 
@@ -49,6 +53,7 @@ export interface MotorTownMap {
 }
 
 const MAP_SIZE = 4096;
+const MAP_REAL_SIZE = 2200000;
 const MAX_SCALE = 50;
 const MIN_SCALE = 0.1;
 
@@ -63,8 +68,9 @@ export class MotorTownMap extends HTMLElement {
   private pointSelectedColor = '#002cdf';
   private pointHoverColor: string | undefined;
 
-  private points: PointsLocal[] | undefined = undefined;
+  private points: PointLocal[] | undefined = undefined;
 
+  private showWpWidth = false;
   private currentScale = 1;
   private offsetX = 0;
   private offsetY = 0;
@@ -78,6 +84,7 @@ export class MotorTownMap extends HTMLElement {
   private mapLoaded = false;
 
   private recenterButton = document.createElement('button');
+  private showWpWidthButton = document.createElement('button');
 
   constructor() {
     super();
@@ -95,6 +102,7 @@ export class MotorTownMap extends HTMLElement {
   private baseArrowHeadLength = () => this.scaled(15);
   private baseConnectingLineWidth = () => this.scaled(3);
   private baseArrowLineWidth = () => this.scaled(3);
+  private baseWpLength = () => this.scaled(0.2);
   private selectRadius = () => {
     const r = this.baseCheckpointRadius() + this.scaled(3);
     return r * r;
@@ -103,7 +111,7 @@ export class MotorTownMap extends HTMLElement {
   private selectedIndex: number | undefined = undefined;
   private hoveredIndex: number | undefined = undefined;
 
-  setPoint(points: Points[]) {
+  setPoint(points: Point[]) {
     this.points = points.map((point) => ({
       ...point,
       mapPosition: this.transformPoint(point.position),
@@ -128,13 +136,14 @@ export class MotorTownMap extends HTMLElement {
   private prevCurrentScale: number | undefined;
   private prevMapCanvasWidth: number | undefined;
   private prevMapCanvasHeight: number | undefined;
-  private prevPoints: PointsLocal[] | undefined;
+  private prevPoints: PointLocal[] | undefined;
   private prevTrackMode: boolean | undefined;
   private prevPointColor: string | undefined;
   private prevPointSelectedColor: string | undefined;
   private prevPointHoverColor: string | undefined;
   private prevSelectedIndex: number | undefined;
   private prevHoveredIndex: number | undefined;
+  private prevShowWpWidth: boolean | undefined;
 
   private stateChange() {
     const changed =
@@ -150,7 +159,8 @@ export class MotorTownMap extends HTMLElement {
       this.pointSelectedColor !== this.prevPointSelectedColor ||
       this.pointHoverColor !== this.prevPointHoverColor ||
       this.selectedIndex !== this.prevSelectedIndex ||
-      this.hoveredIndex !== this.prevHoveredIndex;
+      this.hoveredIndex !== this.prevHoveredIndex ||
+      this.showWpWidth !== this.prevShowWpWidth;
     if (changed) {
       this.prevMapLoaded = this.mapLoaded;
       this.prevOffsetX = this.offsetX;
@@ -165,6 +175,7 @@ export class MotorTownMap extends HTMLElement {
       this.prevPointHoverColor = this.pointHoverColor;
       this.prevSelectedIndex = this.selectedIndex;
       this.prevHoveredIndex = this.hoveredIndex;
+      this.prevShowWpWidth = this.showWpWidth;
     }
     return changed;
   }
@@ -203,6 +214,7 @@ export class MotorTownMap extends HTMLElement {
       const arrowHeadLength = this.baseArrowHeadLength();
       const arrowLineLength = this.baseArrowLineWidth();
       const connectingLineWidth = this.baseConnectingLineWidth();
+      const wpLength = this.baseWpLength();
       const arrowBodyLength = (arrowLength * SQRT_3) / 2;
 
       if (this.trackMode) {
@@ -214,7 +226,7 @@ export class MotorTownMap extends HTMLElement {
           const mp = this.getCanvasPosition(this.points[i].mapPosition);
           this.mapCanvasCtx.lineTo(mp.x, mp.y);
         }
-        this.mapCanvasCtx.strokeStyle = 'white';
+        this.mapCanvasCtx.strokeStyle = 'rgba(255,255,255,0.2)';
         this.mapCanvasCtx.lineWidth = connectingLineWidth;
         this.mapCanvasCtx.stroke();
       }
@@ -223,50 +235,79 @@ export class MotorTownMap extends HTMLElement {
         const wp = this.points[i];
         const mp = this.getCanvasPosition(wp.mapPosition);
         if (this.trackMode) {
-          //draw arrow
-          const yaw = wp.yaw ?? 0;
-          const dx = arrowLength * Math.cos(yaw);
-          const dy = arrowLength * Math.sin(yaw);
-          const dxBody = arrowBodyLength * Math.cos(yaw);
-          const dyBody = arrowBodyLength * Math.sin(yaw);
-          this.mapCanvasCtx.beginPath();
-          this.mapCanvasCtx.moveTo(mp.x, mp.y);
-          this.mapCanvasCtx.lineTo(mp.x + dxBody, mp.y + dyBody);
-          this.mapCanvasCtx.strokeStyle = 'red';
-          this.mapCanvasCtx.lineWidth = arrowLineLength;
-          this.mapCanvasCtx.stroke();
-          const fromX = mp.x;
-          const fromY = mp.y;
-          const toX = mp.x + dx;
-          const toY = mp.y + dy;
-          const angle = Math.atan2(toY - fromY, toX - fromX);
-          this.mapCanvasCtx.beginPath();
-          this.mapCanvasCtx.moveTo(toX, toY);
-          this.mapCanvasCtx.lineTo(
-            toX - arrowHeadLength * Math.cos(angle - Math.PI / 6),
-            toY - arrowHeadLength * Math.sin(angle - Math.PI / 6),
-          );
-          this.mapCanvasCtx.lineTo(
-            toX - arrowHeadLength * Math.cos(angle + Math.PI / 6),
-            toY - arrowHeadLength * Math.sin(angle + Math.PI / 6),
-          );
-          this.mapCanvasCtx.closePath();
-          this.mapCanvasCtx.fillStyle = 'red';
-          this.mapCanvasCtx.fill();
+          if (this.showWpWidth) {
+            const yaw = wp.yaw ?? 0;
+            const scaleY = (((wp.scaleY ?? 0) * 100) / MAP_REAL_SIZE) * MAP_SIZE * this.currentScale;
+            const [p1, p2] = rotatePoints(
+              {
+                x: mp.x,
+                y: mp.y - scaleY / 2,
+              },
+              {
+                x: mp.x,
+                y: mp.y + scaleY / 2,
+              },
+              yaw,
+            );
+            this.mapCanvasCtx.beginPath();
+            this.mapCanvasCtx.moveTo(p1.x, p1.y);
+            this.mapCanvasCtx.lineTo(p2.x, p2.y);
+            this.mapCanvasCtx.strokeStyle =
+              i === this.selectedIndex
+                ? this.pointSelectedColor
+                : i === this.hoveredIndex && this.pointHoverColor
+                  ? this.pointHoverColor
+                  : 'yellow';
+            this.mapCanvasCtx.lineWidth = wpLength * this.currentScale;
+            this.mapCanvasCtx.stroke();
+          } else {
+            //draw arrow
+            const yaw = wp.yaw ?? 0;
+            const dx = arrowLength * Math.cos(yaw);
+            const dy = arrowLength * Math.sin(yaw);
+            const dxBody = arrowBodyLength * Math.cos(yaw);
+            const dyBody = arrowBodyLength * Math.sin(yaw);
+            this.mapCanvasCtx.beginPath();
+            this.mapCanvasCtx.moveTo(mp.x, mp.y);
+            this.mapCanvasCtx.lineTo(mp.x + dxBody, mp.y + dyBody);
+            this.mapCanvasCtx.strokeStyle = 'red';
+            this.mapCanvasCtx.lineWidth = arrowLineLength;
+            this.mapCanvasCtx.stroke();
+            const fromX = mp.x;
+            const fromY = mp.y;
+            const toX = mp.x + dx;
+            const toY = mp.y + dy;
+            const angle = Math.atan2(toY - fromY, toX - fromX);
+            this.mapCanvasCtx.beginPath();
+            this.mapCanvasCtx.moveTo(toX, toY);
+            this.mapCanvasCtx.lineTo(
+              toX - arrowHeadLength * Math.cos(angle - Math.PI / 6),
+              toY - arrowHeadLength * Math.sin(angle - Math.PI / 6),
+            );
+            this.mapCanvasCtx.lineTo(
+              toX - arrowHeadLength * Math.cos(angle + Math.PI / 6),
+              toY - arrowHeadLength * Math.sin(angle + Math.PI / 6),
+            );
+            this.mapCanvasCtx.closePath();
+            this.mapCanvasCtx.fillStyle = 'red';
+            this.mapCanvasCtx.fill();
+          }
         }
 
-        this.mapCanvasCtx.beginPath();
-        this.mapCanvasCtx.arc(mp.x, mp.y, radius, 0, 2 * Math.PI);
-        this.mapCanvasCtx.fillStyle =
-          i === this.selectedIndex
-            ? this.pointSelectedColor
-            : i === this.hoveredIndex && this.pointHoverColor
-              ? this.pointHoverColor
-              : this.pointColor;
-        this.mapCanvasCtx.fill();
-        this.mapCanvasCtx.strokeStyle = 'black';
-        this.mapCanvasCtx.lineWidth = lineWidth;
-        this.mapCanvasCtx.stroke();
+        if (!this.trackMode || !this.showWpWidth) {
+          this.mapCanvasCtx.beginPath();
+          this.mapCanvasCtx.arc(mp.x, mp.y, radius, 0, 2 * Math.PI);
+          this.mapCanvasCtx.fillStyle =
+            i === this.selectedIndex
+              ? this.pointSelectedColor
+              : i === this.hoveredIndex && this.pointHoverColor
+                ? this.pointHoverColor
+                : this.pointColor;
+          this.mapCanvasCtx.fill();
+          this.mapCanvasCtx.strokeStyle = 'black';
+          this.mapCanvasCtx.lineWidth = lineWidth;
+          this.mapCanvasCtx.stroke();
+        }
       }
     }
   };
@@ -318,9 +359,9 @@ export class MotorTownMap extends HTMLElement {
 
   private updateRecenterBtn(centered: boolean) {
     if (centered) {
-      this.recenterButton.classList.add('recenterBtn--centered');
+      this.recenterButton.classList.add('btn--hide');
     } else {
-      this.recenterButton.classList.remove('recenterBtn--centered');
+      this.recenterButton.classList.remove('btn--hide');
     }
   }
 
@@ -444,6 +485,10 @@ export class MotorTownMap extends HTMLElement {
     this.zoomFit();
   };
 
+  private showWpWidthClick = () => {
+    this.showWpWidth = !this.showWpWidth;
+  };
+
   protected connectedCallback() {
     this.isMobileAndTablet = isMobileAndTablet();
     const shadow = this.attachShadow({ mode: 'open' });
@@ -486,20 +531,29 @@ export class MotorTownMap extends HTMLElement {
     this.recenterButton.addEventListener('click', this.recenterClick, {
       passive: true,
     });
+    this.showWpWidthButton.addEventListener('click', this.showWpWidthClick, {
+      passive: true,
+    });
 
     this.recenterButton.innerHTML = centerSvg;
     this.recenterButton.type = 'button';
-    this.recenterButton.className = 'recenterBtn recenterBtn--centered';
+    this.recenterButton.className = 'btn centerBtn btn--hide';
+
+    this.showWpWidthButton.innerHTML = rangeSvg;
+    this.showWpWidthButton.type = 'button';
+    this.showWpWidthButton.className = 'btn';
 
     const sheet = new CSSStyleSheet();
     sheet.insertRule('canvas { width: 100%; height: 100%; }');
     sheet.insertRule(
-      '.recenterBtn { display: flex; position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border: none; padding: 4px; border-radius: 4px; cursor: pointer; }',
+      '.btn { display: flex; position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border: none; padding: 4px; border-radius: 4px; cursor: pointer; }',
     );
-    sheet.insertRule('.recenterBtn.recenterBtn--centered { display: none; }');
+    sheet.insertRule('.btn.centerBtn { bottom: 48px; }');
+    sheet.insertRule('.btn--hide { display: none !important; }');
 
     shadow.adoptedStyleSheets = [sheet];
     shadow.appendChild(this.recenterButton);
+    shadow.appendChild(this.showWpWidthButton);
     shadow.appendChild(this.mapCanvas);
     const canvasBound = this.mapCanvas.getBoundingClientRect();
     this.mapCanvas.width = this.scaled(canvasBound.width);
@@ -519,6 +573,7 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvas.removeEventListener('mouseleave', this.mouseUpEvent);
     this.mapCanvas.removeEventListener('touchend', this.mouseUpEvent);
     this.recenterButton.removeEventListener('click', this.recenterClick);
+    this.showWpWidthButton.removeEventListener('click', this.showWpWidthClick);
     window.removeEventListener('resize', this.resizeEvent);
     if (this.animationRequestId !== undefined) {
       window.cancelAnimationFrame(this.animationRequestId);
@@ -530,6 +585,11 @@ export class MotorTownMap extends HTMLElement {
       case 'track-mode': {
         const v = newValue.trim();
         this.trackMode = v !== '0' && v !== 'false';
+        if (this.trackMode) {
+          this.showWpWidthButton.classList.remove('btn--hide');
+        } else {
+          this.showWpWidthButton.classList.add('btn--hide');
+        }
         break;
       }
       case 'point-color': {
