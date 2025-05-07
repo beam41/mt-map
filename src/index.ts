@@ -5,7 +5,7 @@ import type { MotorTownMap } from '../dist/map';
 
 const mapCanvasElement = mapCanvas as MotorTownMap;
 
-mapCanvasElement.setPoint(
+mapCanvasElement.setPoints(
   outData.map((data) => ({
     position: data,
   })),
