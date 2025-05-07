@@ -158,6 +158,13 @@ export class MotorTownMap extends HTMLElement {
     }
   }
 
+  setSelectedPointsPosition(pos: Vector2) {
+    if (this.selectedIndexPoint) {
+      this.selectedIndexPoint.mapPosition = transformPoint(pos);
+    }
+  }
+
+
   private getCanvasPosition(point: Vector2) {
     return { x: point.x * this.currentScale + this.offsetX, y: point.y * this.currentScale + this.offsetY };
   }

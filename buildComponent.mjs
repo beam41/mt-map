@@ -33,7 +33,19 @@ const minified = await Promise.all(
           module: true,
           mangle: {
             properties: {
-              reserved: ['position', 'yaw', 'scaleY', 'zoomFit', 'setPoints', 'x', 'y', 'observedAttributes', 'setSelectedPointYaw', 'setSelectedPointsScaleY'],
+              reserved: [
+                'position',
+                'yaw',
+                'scaleY',
+                'zoomFit',
+                'setPoints',
+                'x',
+                'y',
+                'observedAttributes',
+                'setSelectedPointYaw',
+                'setSelectedPointsScaleY',
+                'setSelectedPointsPosition',
+              ],
             },
           },
           compress: {
