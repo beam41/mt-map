@@ -44,9 +44,16 @@ export interface MotorTownMap {
 }
 
 const MAP_SIZE = 4096;
+const MAP_REAL_X_LEFT = -1280000;
+const MAP_REAL_Y_TOP = -320000;
 const MAP_REAL_SIZE = 2200000;
 const MAX_SCALE = 50;
 const MIN_SCALE = 0.1;
+
+const ROAD_OFFSET_X = -1;
+const ROAD_OFFSET_Y = 175;
+const ROAD_SCALE = 0.8156;
+const ROAD_SIZE = MAP_SIZE * ROAD_SCALE;
 
 function copyPointSelected(point: PointSelected): PointSelected {
   return {
@@ -59,20 +66,17 @@ function copyPointSelected(point: PointSelected): PointSelected {
   };
 }
 
-const MAP_REAL_X_TOP = 1280000;
-const MAP_REAL_Y_TOP = 320000;
-
 function transformPoint(point: Vector2) {
   return {
-    x: ((point.x + MAP_REAL_X_TOP) / MAP_REAL_SIZE) * MAP_SIZE,
-    y: ((point.y + MAP_REAL_Y_TOP) / MAP_REAL_SIZE) * MAP_SIZE,
+    x: ((point.x - MAP_REAL_X_LEFT) / MAP_REAL_SIZE) * MAP_SIZE,
+    y: ((point.y - MAP_REAL_Y_TOP) / MAP_REAL_SIZE) * MAP_SIZE,
   };
 }
 
 function unTransformPoint(point: Vector2) {
   return {
-    x: (point.x / MAP_SIZE) * MAP_REAL_SIZE - MAP_REAL_X_TOP,
-    y: (point.y / MAP_SIZE) * MAP_REAL_SIZE - MAP_REAL_Y_TOP,
+    x: (point.x / MAP_SIZE) * MAP_REAL_SIZE + MAP_REAL_X_LEFT,
+    y: (point.y / MAP_SIZE) * MAP_REAL_SIZE + MAP_REAL_Y_TOP,
   };
 }
 
@@ -120,6 +124,8 @@ export class MotorTownMap extends HTMLElement {
   private mapCanvasCtx = this.mapCanvas.getContext('2d');
   private mapImage = new Image();
   private mapLoaded = false;
+  private roadImage = new Image();
+  private roadLoaded = false;
 
   private recenterButton = document.createElement('button');
   private showWpWidthButton = document.createElement('button');
@@ -164,12 +170,12 @@ export class MotorTownMap extends HTMLElement {
     }
   }
 
-
   private getCanvasPosition(point: Vector2) {
     return { x: point.x * this.currentScale + this.offsetX, y: point.y * this.currentScale + this.offsetY };
   }
 
   private prevMapLoaded: boolean | undefined;
+  private prevRoadLoaded: boolean | undefined;
   private prevOffsetX: number | undefined;
   private prevOffsetY: number | undefined;
   private prevCurrentScale: number | undefined;
@@ -192,6 +198,7 @@ export class MotorTownMap extends HTMLElement {
   private stateChange() {
     const changed =
       this.mapLoaded !== this.prevMapLoaded ||
+      this.roadLoaded !== this.prevRoadLoaded ||
       this.offsetX !== this.prevOffsetX ||
       this.offsetY !== this.prevOffsetY ||
       this.currentScale !== this.prevCurrentScale ||
@@ -211,6 +218,7 @@ export class MotorTownMap extends HTMLElement {
       this.selectedIndexPoint?.mapPosition.y !== this.prevSelectedIndexPointPositionY;
     if (changed) {
       this.prevMapLoaded = this.mapLoaded;
+      this.prevRoadLoaded = this.roadLoaded;
       this.prevOffsetX = this.offsetX;
       this.prevOffsetY = this.offsetY;
       this.prevCurrentScale = this.currentScale;
@@ -247,7 +255,7 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvasCtx.fillRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
 
     // Draw the map image.
-    if (this.mapImage && this.mapLoaded) {
+    if (this.mapLoaded) {
       this.mapCanvasCtx.imageSmoothingEnabled = false;
       this.mapCanvasCtx.drawImage(
         this.mapImage,
@@ -256,6 +264,19 @@ export class MotorTownMap extends HTMLElement {
         MAP_SIZE * this.currentScale,
         MAP_SIZE * this.currentScale,
       );
+    }
+
+    if (this.roadLoaded) {
+      this.mapCanvasCtx.globalAlpha = 0.4;
+      this.mapCanvasCtx.imageSmoothingEnabled = true;
+      this.mapCanvasCtx.drawImage(
+        this.roadImage,
+        this.offsetX + (MAP_SIZE / 2 - ROAD_SIZE / 2 - ROAD_OFFSET_X) * this.currentScale,
+        this.offsetY + (MAP_SIZE / 2 - ROAD_SIZE / 2 - ROAD_OFFSET_Y) * this.currentScale,
+        ROAD_SIZE * this.currentScale,
+        ROAD_SIZE * this.currentScale,
+      );
+      this.mapCanvasCtx.globalAlpha = 1;
     }
 
     if (this.points) {
@@ -293,7 +314,7 @@ export class MotorTownMap extends HTMLElement {
                 ? 'yellow'
                 : this.pointColor;
         if (this.trackMode && this.selectedIndex === i) {
-          this.mapCanvasCtx.globalAlpha = 0.5;
+          this.mapCanvasCtx.globalAlpha = 0.6;
         }
         this.drawPoint(wp, mp, fillStyle, lineWidth, radius, arrowHeadLength, wpLength, arrowLength);
         this.mapCanvasCtx.globalAlpha = 1;
@@ -373,7 +394,6 @@ export class MotorTownMap extends HTMLElement {
       this.mapCanvasCtx!.lineWidth = lineWidth;
       this.mapCanvasCtx!.stroke();
     }
-    this.mapCanvasCtx!.globalAlpha = 1;
   }
 
   zoomFit() {
@@ -592,6 +612,11 @@ export class MotorTownMap extends HTMLElement {
       this.mapLoaded = true;
     };
     this.mapImage.src = 'map.png';
+
+    this.roadImage.onload = () => {
+      this.roadLoaded = true;
+    };
+    this.roadImage.src = `road.svg`;
 
     this.mapCanvas.addEventListener('wheel', this.wheelEvent, {
       passive: false,

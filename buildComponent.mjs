@@ -60,6 +60,7 @@ minified.forEach((output, i) => {
 });
 
 copyFileSync('./components/map.png', './dist/map.png');
+copyFileSync('./components/road.svg', './dist/road.svg');
 
 const resultFile = readdirSync('./dist');
 const longestFileName = resultFile.reduce((a, c) => Math.max(a, c.length), 0);
