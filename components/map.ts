@@ -1,5 +1,7 @@
 import centerSvg from './center.svg';
 import rangeSvg from './range.svg';
+import zoomInSvg from './zoomIn.svg';
+import zoomOutSvg from './zoomOut.svg';
 import { squaredHypot } from './utils/squaredHypot';
 import { rotatePoints } from './utils/rotatePoints';
 
@@ -8,6 +10,11 @@ export type PointLocal = {
   yaw?: number;
   scaleY?: number;
   mapPosition: Vector2;
+  color?: {
+    point?: string;
+    selected?: string;
+    hover?: string;
+  };
 };
 
 export type Point = Omit<PointLocal, 'mapPosition'>;
@@ -129,6 +136,8 @@ export class MotorTownMap extends HTMLElement {
 
   private recenterButton = document.createElement('button');
   private showWpWidthButton = document.createElement('button');
+  private zoomInButton = document.createElement('button');
+  private zoomOutButton = document.createElement('button');
 
   constructor() {
     super();
@@ -242,8 +251,12 @@ export class MotorTownMap extends HTMLElement {
 
   private animationRequestId: number | undefined;
 
-  private drawMap = () => {
-    this.animationRequestId = window.requestAnimationFrame(this.drawMap);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private drawMap = (_: number, force?: boolean) => {
+    if (!force) {
+      this.animationRequestId = window.requestAnimationFrame(this.drawMap);
+    }
+
     if (!this.stateChange()) {
       return;
     }
@@ -305,14 +318,17 @@ export class MotorTownMap extends HTMLElement {
       for (let i = 0; i < this.points.length; i++) {
         const wp = this.points[i];
         const mp = this.getCanvasPosition(wp.mapPosition);
+        const selectedColor = wp.color?.selected || this.pointSelectedColor;
+        const pointColor = wp.color?.point || this.pointColor;
+        const hoverColor = wp.color?.hover || this.pointHoverColor;
         const fillStyle =
           i === this.selectedIndex
-            ? this.pointSelectedColor
-            : i === this.hoveredIndex && this.pointHoverColor
-              ? this.pointHoverColor
+            ? selectedColor
+            : i === this.hoveredIndex && hoverColor
+              ? hoverColor
               : this.showWpWidth
                 ? 'yellow'
-                : this.pointColor;
+                : pointColor;
         if (this.trackMode && this.selectedIndex === i) {
           this.mapCanvasCtx.globalAlpha = 0.6;
         }
@@ -323,7 +339,16 @@ export class MotorTownMap extends HTMLElement {
       if (this.trackMode && this.selectedIndex !== undefined && this.selectedIndexPoint) {
         const wp = this.selectedIndexPoint;
         const mp = this.getCanvasPosition(this.selectedIndexPoint!.mapPosition);
-        this.drawPoint(wp, mp, this.pointSelectedColor, lineWidth, radius, arrowHeadLength, wpLength, arrowLength);
+        this.drawPoint(
+          wp,
+          mp,
+          wp.color?.selected || this.pointSelectedColor,
+          lineWidth,
+          radius,
+          arrowHeadLength,
+          wpLength,
+          arrowLength,
+        );
       }
     }
   };
@@ -466,16 +491,34 @@ export class MotorTownMap extends HTMLElement {
     const mouseX = scaled(e.clientX - rect.left);
     const mouseY = scaled(e.clientY - rect.top);
     const zoomFactor = Math.sign(e.deltaY) * -0.1;
-    const worldX = (mouseX - this.offsetX) / this.currentScale;
-    const worldY = (mouseY - this.offsetY) / this.currentScale;
+    this.doZoom(zoomFactor, mouseX, mouseY);
+  };
+
+  private doZoom = (zoomFactor: number, zoomCenterX: number, zoomCenterY: number) => {
+    const worldX = (zoomCenterX - this.offsetX) / this.currentScale;
+    const worldY = (zoomCenterY - this.offsetY) / this.currentScale;
     let nextCurrentScale = this.currentScale * (1 + zoomFactor);
     nextCurrentScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, nextCurrentScale));
     if (nextCurrentScale !== this.currentScale) {
       this.currentScale = nextCurrentScale;
-      this.offsetX = mouseX - worldX * this.currentScale;
-      this.offsetY = mouseY - worldY * this.currentScale;
+      this.offsetX = zoomCenterX - worldX * this.currentScale;
+      this.offsetY = zoomCenterY - worldY * this.currentScale;
       this.updateRecenterBtn(false);
     }
+  };
+
+  private zoomInClick = () => {
+    const rect = this.mapCanvas.getBoundingClientRect();
+    const centerX = scaled(rect.width / 2);
+    const centerY = scaled(rect.height / 2);
+    this.doZoom(0.2, centerX, centerY);
+  };
+
+  private zoomOutClick = () => {
+    const rect = this.mapCanvas.getBoundingClientRect();
+    const centerX = scaled(rect.width / 2);
+    const centerY = scaled(rect.height / 2);
+    this.doZoom(-0.2, centerX, centerY);
   };
 
   private mouseMoveEvent = (e: MouseEvent | TouchEvent) => {
@@ -595,6 +638,7 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvas.width = scaled(canvasBound.width);
     this.mapCanvas.height = scaled(canvasBound.height);
     this.updateRecenterBtn(false);
+    this.drawMap(0, true);
   };
 
   private recenterClick = () => {
@@ -604,6 +648,8 @@ export class MotorTownMap extends HTMLElement {
   private showWpWidthClick = () => {
     this.showWpWidth = !this.showWpWidth;
   };
+
+  private resizeObserver: ResizeObserver | undefined;
 
   protected connectedCallback() {
     const shadow = this.attachShadow({ mode: 'open' });
@@ -645,15 +691,21 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvas.addEventListener('touchend', this.mouseUpEvent, {
       passive: true,
     });
-    window.addEventListener('resize', this.resizeEvent, {
-      passive: true,
-    });
     this.recenterButton.addEventListener('click', this.recenterClick, {
       passive: true,
     });
     this.showWpWidthButton.addEventListener('click', this.showWpWidthClick, {
       passive: true,
     });
+    this.zoomInButton.addEventListener('click', this.zoomInClick, {
+      passive: true,
+    });
+    this.zoomOutButton.addEventListener('click', this.zoomOutClick, {
+      passive: true,
+    });
+
+    this.resizeObserver = new ResizeObserver(this.resizeEvent);
+    this.resizeObserver.observe(this);
 
     this.recenterButton.innerHTML = centerSvg;
     this.recenterButton.type = 'button';
@@ -661,17 +713,29 @@ export class MotorTownMap extends HTMLElement {
 
     this.showWpWidthButton.innerHTML = rangeSvg;
     this.showWpWidthButton.type = 'button';
-    this.showWpWidthButton.className = 'btn';
+    this.showWpWidthButton.className = 'btn wpWidthBtn btn--hide';
+
+    this.zoomInButton.innerHTML = zoomInSvg;
+    this.zoomInButton.type = 'button';
+    this.zoomInButton.className = 'btn zoomInBtn';
+    this.zoomOutButton.innerHTML = zoomOutSvg;
+    this.zoomOutButton.type = 'button';
+    this.zoomOutButton.className = 'btn zoomOutBtn';
 
     const sheet = new CSSStyleSheet();
+    sheet.insertRule(':host { position: relative; }');
     sheet.insertRule('canvas { width: 100%; height: 100%; }');
     sheet.insertRule(
       '.btn { display: flex; position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border: none; padding: 4px; border-radius: 4px; cursor: pointer; }',
     );
-    sheet.insertRule('.btn.centerBtn { bottom: 48px; }');
+    sheet.insertRule('.btn.zoomInBtn { bottom: 48px; }');
+    sheet.insertRule('.btn.centerBtn { bottom: 88px; }');
+    sheet.insertRule('.btn.wpWidthBtn { right: 48px; }');
     sheet.insertRule('.btn--hide { display: none !important; }');
 
     shadow.adoptedStyleSheets = [sheet];
+    shadow.appendChild(this.zoomInButton);
+    shadow.appendChild(this.zoomOutButton);
     shadow.appendChild(this.recenterButton);
     shadow.appendChild(this.showWpWidthButton);
     shadow.appendChild(this.mapCanvas);
@@ -694,7 +758,9 @@ export class MotorTownMap extends HTMLElement {
     this.mapCanvas.removeEventListener('touchend', this.mouseUpEvent);
     this.recenterButton.removeEventListener('click', this.recenterClick);
     this.showWpWidthButton.removeEventListener('click', this.showWpWidthClick);
-    window.removeEventListener('resize', this.resizeEvent);
+    this.zoomInButton.removeEventListener('click', this.zoomInClick);
+    this.zoomOutButton.removeEventListener('click', this.zoomOutClick);
+    this.resizeObserver?.disconnect();
     if (this.animationRequestId !== undefined) {
       window.cancelAnimationFrame(this.animationRequestId);
     }
