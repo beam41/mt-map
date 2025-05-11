@@ -19,7 +19,7 @@ export type PointLocal = {
 
 export type Point = Omit<PointLocal, 'mapPosition'>;
 
-export type PointSelected = Omit<PointLocal, 'position'>;
+type PointSelected = Omit<PointLocal, 'position'>;
 
 export type Vector2 = {
   x: number;
