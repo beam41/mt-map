@@ -49,6 +49,7 @@ const minified = await Promise.all(
                 'point',
                 'selected',
                 'hover',
+                'label',
               ],
             },
           },

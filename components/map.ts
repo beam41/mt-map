@@ -89,7 +89,7 @@ function unTransformPoint(point: Vector2) {
 }
 
 function scaled(x: number) {
-  return x * (window.devicePixelRatio > 2 ? 1 : window.devicePixelRatio);
+  return x * (window.devicePixelRatio > 2 ? window.devicePixelRatio / 2 : window.devicePixelRatio);
 }
 
 const baseCheckpointRadius = () => scaled(7.5);
@@ -252,7 +252,6 @@ export class MotorTownMap extends HTMLElement {
 
   private animationRequestId: number | undefined;
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private drawMap = (_: number, force?: boolean) => {
     if (!force) {
       this.animationRequestId = window.requestAnimationFrame(this.drawMap);
@@ -265,6 +264,7 @@ export class MotorTownMap extends HTMLElement {
       console.error('mapCanvas not found');
       return;
     }
+    this.mapCanvasCtx.lineJoin = 'round';
     this.mapCanvasCtx.fillStyle = ' #375d87';
     this.mapCanvasCtx.fillRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
 
@@ -333,17 +333,17 @@ export class MotorTownMap extends HTMLElement {
         if (this.trackMode && this.selectedIndex === i) {
           this.mapCanvasCtx.globalAlpha = 0.6;
         }
-        this.drawPoint(wp,
-                       mp,
-                       fillStyle,
-                       lineWidth,
-                       radius,
-                       arrowHeadLength,
-                       wpLength,
-                       arrowLength,
-                       wp.label);
+        this.drawPoint(wp, mp, fillStyle, lineWidth, radius, arrowHeadLength, wpLength, arrowLength);
 
         this.mapCanvasCtx.globalAlpha = 1;
+      }
+
+      for (let i = 0; i < this.points.length; i++) {
+        const wp = this.points[i];
+        if (wp.label) {
+          const mp = this.getCanvasPosition(wp.mapPosition);
+          this.drawLabel(mp, lineWidth, radius, wp.label);
+        }
       }
 
       if (this.trackMode && this.selectedIndex !== undefined && this.selectedIndexPoint) {
@@ -358,8 +358,10 @@ export class MotorTownMap extends HTMLElement {
           arrowHeadLength,
           wpLength,
           arrowLength,
-          wp.label,
         );
+        if (wp.label) {
+          this.drawLabel(mp, lineWidth, radius, wp.label);
+        }
       }
     }
   };
@@ -373,7 +375,6 @@ export class MotorTownMap extends HTMLElement {
     arrowHeadLength: number,
     wpLength: number,
     arrowLength: number,
-    label?: string,
   ) {
     if (this.trackMode) {
       if (this.showWpWidth) {
@@ -431,14 +432,16 @@ export class MotorTownMap extends HTMLElement {
       this.mapCanvasCtx!.lineWidth = lineWidth;
       this.mapCanvasCtx!.stroke();
     }
+  }
 
-    if (label) {
-      this.mapCanvasCtx!.font = `${Math.max(14, radius * 1.5)}px sans-serif`;
-      this.mapCanvasCtx!.textAlign = 'center';
-      this.mapCanvasCtx!.textBaseline = 'bottom';
-      this.mapCanvasCtx!.fillStyle = 'black';
-      this.mapCanvasCtx!.fillText(label, mp.x, mp.y - radius - 4);
-    }
+  private drawLabel(mp: Vector2, lineWidth: number, radius: number, label: string) {
+    this.mapCanvasCtx!.font = `${Math.max(14, radius * 1.5)}px sans-serif`;
+    this.mapCanvasCtx!.textAlign = 'center';
+    this.mapCanvasCtx!.textBaseline = 'bottom';
+    this.mapCanvasCtx!.fillStyle = 'white';
+    this.mapCanvasCtx!.lineWidth = lineWidth * 2;
+    this.mapCanvasCtx!.strokeText(label, mp.x, mp.y - radius - 4);
+    this.mapCanvasCtx!.fillText(label, mp.x, mp.y - radius - 4);
   }
 
   zoomFit() {
