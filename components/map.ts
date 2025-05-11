@@ -15,6 +15,7 @@ export type PointLocal = {
     selected?: string;
     hover?: string;
   };
+  label?: string;
 };
 
 export type Point = Omit<PointLocal, 'mapPosition'>;
@@ -332,7 +333,16 @@ export class MotorTownMap extends HTMLElement {
         if (this.trackMode && this.selectedIndex === i) {
           this.mapCanvasCtx.globalAlpha = 0.6;
         }
-        this.drawPoint(wp, mp, fillStyle, lineWidth, radius, arrowHeadLength, wpLength, arrowLength);
+        this.drawPoint(wp,
+                       mp,
+                       fillStyle,
+                       lineWidth,
+                       radius,
+                       arrowHeadLength,
+                       wpLength,
+                       arrowLength,
+                       wp.label);
+
         this.mapCanvasCtx.globalAlpha = 1;
       }
 
@@ -348,6 +358,7 @@ export class MotorTownMap extends HTMLElement {
           arrowHeadLength,
           wpLength,
           arrowLength,
+          wp.label,
         );
       }
     }
@@ -362,6 +373,7 @@ export class MotorTownMap extends HTMLElement {
     arrowHeadLength: number,
     wpLength: number,
     arrowLength: number,
+    label?: string,
   ) {
     if (this.trackMode) {
       if (this.showWpWidth) {
@@ -418,6 +430,14 @@ export class MotorTownMap extends HTMLElement {
       this.mapCanvasCtx!.strokeStyle = 'black';
       this.mapCanvasCtx!.lineWidth = lineWidth;
       this.mapCanvasCtx!.stroke();
+    }
+
+    if (label) {
+      this.mapCanvasCtx!.font = `${Math.max(14, radius * 1.5)}px sans-serif`;
+      this.mapCanvasCtx!.textAlign = 'center';
+      this.mapCanvasCtx!.textBaseline = 'bottom';
+      this.mapCanvasCtx!.fillStyle = 'black';
+      this.mapCanvasCtx!.fillText(label, mp.x, mp.y - radius - 4);
     }
   }
 
