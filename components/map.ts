@@ -533,7 +533,7 @@ export class MotorTownMap extends HTMLElement {
 
       this.updateHovered(hoveredIndex);
       if (hoveredIndex !== undefined) {
-        if (hoveredIndex === this.selectedIndex) {
+        if (this.trackMode && hoveredIndex === this.selectedIndex) {
           this.mapCanvas.style.cursor = 'move';
         } else {
           this.mapCanvas.style.cursor = 'pointer';
