@@ -5,22 +5,39 @@ import zoomOutSvg from './zoomOut.svg';
 import { squaredHypot } from './utils/squaredHypot';
 import { rotatePoints } from './utils/rotatePoints';
 
+export type Color = {
+  point?: string;
+  selected?: string;
+  hover?: string;
+};
+
 export type PointLocal = {
   position: Vector2;
   yaw?: number;
   scaleY?: number;
   mapPosition: Vector2;
-  color?: {
-    point?: string;
-    selected?: string;
-    hover?: string;
-  };
+  color?: Color;
   label?: string;
 };
 
-export type Point = Omit<PointLocal, 'mapPosition'>;
+export type PointsGroupBase<T> = {
+  points: T[];
+  color?: Color;
+  trackMode?: boolean;
+  draggable?: boolean;
+  hidden?: boolean;
+};
 
-type PointSelected = Omit<PointLocal, 'position'>;
+export type PointsLocalGroup = Required<
+  Omit<PointsGroupBase<PointLocal & { color: Required<Color> }>, 'color' | 'hidden'>
+>;
+export type PointsLocalGroups = Record<string, PointsLocalGroup>;
+
+export type Point = Omit<PointLocal, 'mapPosition'>;
+export type PointsGroup = PointsGroupBase<Point>;
+export type PointsGroups = Record<string, PointsGroup>;
+
+type PointSelected = Omit<PointLocal & { color: Required<Color> }, 'position'>;
 
 export type Vector2 = {
   x: number;
@@ -28,9 +45,9 @@ export type Vector2 = {
 };
 
 type MotorTownMapEvent = {
-  'mt-map:point-click': CustomEvent<{ index: number }>;
-  'mt-map:point-hover': CustomEvent<{ index: number | undefined }>;
-  'mt-map:point-move': CustomEvent<{ index: number; position: Vector2 }>;
+  'mt-map:point-click': CustomEvent<{ id: string; index: number }>;
+  'mt-map:point-hover': CustomEvent<{ id: undefined; index: undefined } | { id: string; index: number }>;
+  'mt-map:point-move': CustomEvent<{ id: string; index: number; position: Vector2 }>;
 };
 
 type MotorTownMapEventKey = keyof MotorTownMapEvent;
@@ -71,6 +88,11 @@ function copyPointSelected(point: PointSelected): PointSelected {
     },
     scaleY: point.scaleY,
     yaw: point.yaw,
+    color: {
+      hover: point.color.hover,
+      selected: point.color.selected,
+      point: point.color.point,
+    },
   };
 }
 
@@ -102,22 +124,18 @@ const baseSelectRadius = () => {
   const r = baseCheckpointRadius() + scaled(3);
   return r * r;
 };
+const pointDefaultColor = {
+  hover: '#fff',
+  point: '#fff',
+  selected: '#fff',
+};
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class MotorTownMap extends HTMLElement {
-  protected static observedAttributes = [
-    'track-mode',
-    'point-color',
-    'point-selected-color',
-    'point-hover-color',
-  ] as const;
+  private groups: PointsLocalGroups = {};
 
-  private trackMode = false;
-  private pointColor = '#dfb300';
-  private pointSelectedColor = '#002cdf';
-  private pointHoverColor: string | undefined;
-
-  private points: PointLocal[] | undefined = undefined;
+  private hasTrack: boolean = false;
+  private hasOneTrackOnly: boolean = false;
 
   private showWpWidth = false;
   private currentScale = 1;
@@ -144,39 +162,69 @@ export class MotorTownMap extends HTMLElement {
     super();
   }
 
-  private selectedIndexPoint: PointSelected | undefined = undefined;
-  private selectedIndex: number | undefined = undefined;
-  private hoveredIndex: number | undefined = undefined;
+  private selectedPoint: PointSelected | undefined = undefined;
+  private selectedIndex: [string, number] | undefined = undefined;
+  private hoveredIndex: [string, number] | undefined = undefined;
 
-  setPoints(points: Point[], reset = false) {
-    this.points = points.map((point) => ({
-      ...point,
-      mapPosition: transformPoint(point.position),
-    }));
+  setPoints(groups: PointsGroups, reset = false) {
+    this.groups = {};
+    this.hasTrack = false;
+    let trackCount = 0;
+    Object.entries(groups).forEach(([id, group]) => {
+      if (group.hidden) return;
+
+      if (group.trackMode) {
+        this.hasTrack = true;
+        trackCount++;
+      }
+
+      this.groups[id] = {
+        points: group.points.map((point) => ({
+          ...point,
+          mapPosition: transformPoint(point.position),
+          color: {
+            point: point.color?.point ?? group.color?.point ?? pointDefaultColor.point,
+            hover: point.color?.hover ?? group.color?.hover ?? pointDefaultColor.hover,
+            selected: point.color?.selected ?? group.color?.selected ?? pointDefaultColor.selected,
+          },
+        })),
+        trackMode: group.trackMode ?? false,
+        draggable: group.draggable ?? false,
+      };
+    });
+    this.hasOneTrackOnly = trackCount === 1;
+
+    if (this.hasTrack) {
+      this.showWpWidthButton.classList.remove('btn--hide');
+    } else {
+      this.showWpWidthButton.classList.add('btn--hide');
+    }
+
     if (reset) {
       this.selectedIndex = undefined;
-      this.selectedIndexPoint = undefined;
+      this.selectedPoint = undefined;
     }
     if (this.selectedIndex !== undefined) {
-      this.selectedIndexPoint = copyPointSelected(this.points[this.selectedIndex]);
+      const [group, index] = this.selectedIndex;
+      this.selectedPoint = copyPointSelected(this.groups[group].points[index]);
     }
   }
 
   setSelectedPointYaw(yaw: number) {
-    if (this.selectedIndexPoint) {
-      this.selectedIndexPoint.yaw = yaw;
+    if (this.selectedPoint) {
+      this.selectedPoint.yaw = yaw;
     }
   }
 
   setSelectedPointsScaleY(scaleY: number) {
-    if (this.selectedIndexPoint) {
-      this.selectedIndexPoint.scaleY = scaleY;
+    if (this.selectedPoint) {
+      this.selectedPoint.scaleY = scaleY;
     }
   }
 
   setSelectedPointsPosition(pos: Vector2) {
-    if (this.selectedIndexPoint) {
-      this.selectedIndexPoint.mapPosition = transformPoint(pos);
+    if (this.selectedPoint) {
+      this.selectedPoint.mapPosition = transformPoint(pos);
     }
   }
 
@@ -191,19 +239,15 @@ export class MotorTownMap extends HTMLElement {
   private prevCurrentScale: number | undefined;
   private prevMapCanvasWidth: number | undefined;
   private prevMapCanvasHeight: number | undefined;
-  private prevPoints: PointLocal[] | undefined;
-  private prevTrackMode: boolean | undefined;
-  private prevPointColor: string | undefined;
-  private prevPointSelectedColor: string | undefined;
-  private prevPointHoverColor: string | undefined;
-  private prevSelectedIndex: number | undefined;
-  private prevHoveredIndex: number | undefined;
+  private prevGroups: PointsLocalGroups | undefined;
+  private prevSelectedIndex: [string, number] | undefined;
+  private prevHoveredIndex: [string, number] | undefined;
   private prevShowWpWidth: boolean | undefined;
 
-  private prevSelectedIndexPointScaleY: number | undefined;
-  private prevSelectedIndexPointYaw: number | undefined;
-  private prevSelectedIndexPointPositionX: number | undefined;
-  private prevSelectedIndexPointPositionY: number | undefined;
+  private prevSelectedPointScaleY: number | undefined;
+  private prevSelectedPointYaw: number | undefined;
+  private prevSelectedPointPositionX: number | undefined;
+  private prevSelectedPointPositionY: number | undefined;
 
   private stateChange() {
     const changed =
@@ -214,18 +258,14 @@ export class MotorTownMap extends HTMLElement {
       this.currentScale !== this.prevCurrentScale ||
       this.mapCanvas.width !== this.prevMapCanvasWidth ||
       this.mapCanvas.height !== this.prevMapCanvasHeight ||
-      this.points !== this.prevPoints ||
-      this.trackMode !== this.prevTrackMode ||
-      this.pointColor !== this.prevPointColor ||
-      this.pointSelectedColor !== this.prevPointSelectedColor ||
-      this.pointHoverColor !== this.prevPointHoverColor ||
+      this.groups !== this.prevGroups ||
       this.selectedIndex !== this.prevSelectedIndex ||
       this.hoveredIndex !== this.prevHoveredIndex ||
       this.showWpWidth !== this.prevShowWpWidth ||
-      this.selectedIndexPoint?.scaleY !== this.prevSelectedIndexPointScaleY ||
-      this.selectedIndexPoint?.yaw !== this.prevSelectedIndexPointYaw ||
-      this.selectedIndexPoint?.mapPosition.x !== this.prevSelectedIndexPointPositionX ||
-      this.selectedIndexPoint?.mapPosition.y !== this.prevSelectedIndexPointPositionY;
+      this.selectedPoint?.scaleY !== this.prevSelectedPointScaleY ||
+      this.selectedPoint?.yaw !== this.prevSelectedPointYaw ||
+      this.selectedPoint?.mapPosition.x !== this.prevSelectedPointPositionX ||
+      this.selectedPoint?.mapPosition.y !== this.prevSelectedPointPositionY;
     if (changed) {
       this.prevMapLoaded = this.mapLoaded;
       this.prevRoadLoaded = this.roadLoaded;
@@ -234,18 +274,14 @@ export class MotorTownMap extends HTMLElement {
       this.prevCurrentScale = this.currentScale;
       this.prevMapCanvasWidth = this.mapCanvas.width;
       this.prevMapCanvasHeight = this.mapCanvas.height;
-      this.prevPoints = this.points;
-      this.prevTrackMode = this.trackMode;
-      this.prevPointColor = this.pointColor;
-      this.prevPointSelectedColor = this.pointSelectedColor;
-      this.prevPointHoverColor = this.pointHoverColor;
+      this.prevGroups = this.groups;
       this.prevSelectedIndex = this.selectedIndex;
       this.prevHoveredIndex = this.hoveredIndex;
       this.prevShowWpWidth = this.showWpWidth;
-      this.prevSelectedIndexPointScaleY = this.selectedIndexPoint?.scaleY;
-      this.prevSelectedIndexPointYaw = this.selectedIndexPoint?.yaw;
-      this.prevSelectedIndexPointPositionX = this.selectedIndexPoint?.mapPosition.x;
-      this.prevSelectedIndexPointPositionY = this.selectedIndexPoint?.mapPosition.y;
+      this.prevSelectedPointScaleY = this.selectedPoint?.scaleY;
+      this.prevSelectedPointYaw = this.selectedPoint?.yaw;
+      this.prevSelectedPointPositionX = this.selectedPoint?.mapPosition.x;
+      this.prevSelectedPointPositionY = this.selectedPoint?.mapPosition.y;
     }
     return changed;
   }
@@ -293,7 +329,7 @@ export class MotorTownMap extends HTMLElement {
       this.mapCanvasCtx.globalAlpha = 1;
     }
 
-    if (this.points) {
+    if (this.groups) {
       // Draw each waypoint with its arrow and label.
       const lineWidth = baseCheckpointOutlineRadius();
       const radius = baseCheckpointRadius();
@@ -301,66 +337,72 @@ export class MotorTownMap extends HTMLElement {
       const arrowHeadLength = baseArrowHeadLength();
       const connectingLineWidth = baseConnectingLineWidth();
       const wpLength = baseWpLength();
+      const [selectedId, selectedIndex] = this.selectedIndex ?? [];
+      const [hoveredId, hoveredIndex] = this.hoveredIndex ?? [];
 
-      if (this.trackMode) {
-        // Draw connecting polyline.
-        const mp0 = this.getCanvasPosition(this.points[0].mapPosition);
-        this.mapCanvasCtx.beginPath();
-        this.mapCanvasCtx.moveTo(mp0.x, mp0.y);
-        for (let i = 1; i < this.points.length; i++) {
-          const mp = this.getCanvasPosition(this.points[i].mapPosition);
-          this.mapCanvasCtx.lineTo(mp.x, mp.y);
+      const groups = Object.entries(this.groups);
+
+      for (let g = 0; g < groups.length; g++) {
+        const [id, group] = groups[g];
+        if (group.trackMode) {
+          // Draw connecting polyline.
+          const mp0 = this.getCanvasPosition(group.points[0].mapPosition);
+          this.mapCanvasCtx.beginPath();
+          this.mapCanvasCtx.moveTo(mp0.x, mp0.y);
+          for (let i = 1; i < group.points.length; i++) {
+            const mp = this.getCanvasPosition(group.points[i].mapPosition);
+            this.mapCanvasCtx.lineTo(mp.x, mp.y);
+          }
+          this.mapCanvasCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+          this.mapCanvasCtx.lineWidth = connectingLineWidth;
+          this.mapCanvasCtx.stroke();
         }
-        this.mapCanvasCtx.strokeStyle = 'rgba(255,255,255,0.3)';
-        this.mapCanvasCtx.lineWidth = connectingLineWidth;
-        this.mapCanvasCtx.stroke();
-      }
 
-      for (let i = 0; i < this.points.length; i++) {
-        const wp = this.points[i];
-        const mp = this.getCanvasPosition(wp.mapPosition);
-        const selectedColor = wp.color?.selected || this.pointSelectedColor;
-        const pointColor = wp.color?.point || this.pointColor;
-        const hoverColor = wp.color?.hover || this.pointHoverColor;
-        const fillStyle =
-          i === this.selectedIndex
-            ? selectedColor
-            : i === this.hoveredIndex && hoverColor
-              ? hoverColor
-              : this.showWpWidth
-                ? 'yellow'
-                : pointColor;
-        if (this.trackMode && this.selectedIndex === i) {
-          this.mapCanvasCtx.globalAlpha = 0.6;
-        }
-        this.drawPoint(wp, mp, fillStyle, lineWidth, radius, arrowHeadLength, wpLength, arrowLength);
-
-        this.mapCanvasCtx.globalAlpha = 1;
-      }
-
-      for (let i = 0; i < this.points.length; i++) {
-        const wp = this.points[i];
-        if (wp.label) {
+        for (let i = 0; i < group.points.length; i++) {
+          const wp = group.points[i];
           const mp = this.getCanvasPosition(wp.mapPosition);
-          this.drawLabel(mp, lineWidth, radius, wp.label);
-        }
-      }
+          const selectedColor = wp.color.selected;
+          const pointColor = wp.color.point;
+          const hoverColor = wp.color.hover;
+          const fillStyle =
+            id === selectedId && i === selectedIndex
+              ? selectedColor
+              : id === hoveredId && i === hoveredIndex
+                ? hoverColor
+                : pointColor;
+          if (group.trackMode && id === selectedId && i === selectedIndex) {
+            this.mapCanvasCtx.globalAlpha = 0.6;
+          }
+          this.drawPoint(wp, mp, fillStyle, lineWidth, radius, arrowHeadLength, wpLength, arrowLength, group.trackMode);
 
-      if (this.trackMode && this.selectedIndex !== undefined && this.selectedIndexPoint) {
-        const wp = this.selectedIndexPoint;
-        const mp = this.getCanvasPosition(this.selectedIndexPoint!.mapPosition);
-        this.drawPoint(
-          wp,
-          mp,
-          wp.color?.selected || this.pointSelectedColor,
-          lineWidth,
-          radius,
-          arrowHeadLength,
-          wpLength,
-          arrowLength,
-        );
-        if (wp.label) {
-          this.drawLabel(mp, lineWidth, radius, wp.label);
+          this.mapCanvasCtx.globalAlpha = 1;
+        }
+
+        for (let i = 0; i < group.points.length; i++) {
+          const wp = group.points[i];
+          if (wp.label) {
+            const mp = this.getCanvasPosition(wp.mapPosition);
+            this.drawLabel(mp, lineWidth, radius, wp.label);
+          }
+        }
+
+        if (group.draggable && this.selectedIndex !== undefined && this.selectedPoint) {
+          const wp = this.selectedPoint;
+          const mp = this.getCanvasPosition(this.selectedPoint!.mapPosition);
+          this.drawPoint(
+            wp,
+            mp,
+            wp.color.selected,
+            lineWidth,
+            radius,
+            arrowHeadLength,
+            wpLength,
+            arrowLength,
+            group.trackMode,
+          );
+          if (wp.label) {
+            this.drawLabel(mp, lineWidth, radius, wp.label);
+          }
         }
       }
     }
@@ -375,8 +417,9 @@ export class MotorTownMap extends HTMLElement {
     arrowHeadLength: number,
     wpLength: number,
     arrowLength: number,
+    trackMode: boolean,
   ) {
-    if (this.trackMode) {
+    if (trackMode) {
       if (this.showWpWidth) {
         const yaw = wp.yaw ?? 0;
         const scaleY = (((wp.scaleY ?? 0) * 100) / MAP_REAL_SIZE) * MAP_SIZE * this.currentScale;
@@ -423,7 +466,7 @@ export class MotorTownMap extends HTMLElement {
       }
     }
 
-    if (!this.trackMode || !this.showWpWidth) {
+    if (!trackMode || !this.showWpWidth) {
       this.mapCanvasCtx!.beginPath();
       this.mapCanvasCtx!.arc(mp.x, mp.y, radius, 0, 2 * Math.PI);
       this.mapCanvasCtx!.fillStyle = fillStyle;
@@ -445,46 +488,46 @@ export class MotorTownMap extends HTMLElement {
   }
 
   zoomFit() {
-    if (!this.mapCanvasCtx) {
-      console.error('mapCanvas not found');
-      return;
+    if (this.hasTrack && this.hasOneTrackOnly && this.groups) {
+      const track = Object.values(this.groups).find((g) => g.trackMode);
+      if (track) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        track.points.forEach((point) => {
+          minX = Math.min(point.mapPosition.x, minX);
+          minY = Math.min(point.mapPosition.y, minY);
+          maxX = Math.max(point.mapPosition.x, maxX);
+          maxY = Math.max(point.mapPosition.y, maxY);
+        });
+        const deltaX = maxX - minX;
+        const deltaY = maxY - minY;
+        const currentScaleX = (this.mapCanvas.width - FIT_PADDING * 2) / deltaX;
+        const currentScaleY = (this.mapCanvas.height - FIT_PADDING * 2) / deltaY;
+        if (currentScaleX < currentScaleY) {
+          this.currentScale = Math.min(MAX_SCALE, currentScaleX);
+          this.offsetX = -minX * this.currentScale + FIT_PADDING;
+          const midpointY = (minY + maxY) / 2;
+          this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
+        } else {
+          this.currentScale = Math.min(MAX_SCALE, currentScaleY);
+          this.offsetY = -minY * this.currentScale + FIT_PADDING;
+          const midpointX = (minX + maxX) / 2;
+          this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
+        }
+        this.updateRecenterBtn(true);
+        return;
+      }
     }
 
-    if (this.trackMode && this.points) {
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      this.points.forEach((point) => {
-        minX = Math.min(point.mapPosition.x, minX);
-        minY = Math.min(point.mapPosition.y, minY);
-        maxX = Math.max(point.mapPosition.x, maxX);
-        maxY = Math.max(point.mapPosition.y, maxY);
-      });
-      const deltaX = maxX - minX;
-      const deltaY = maxY - minY;
-      const currentScaleX = (this.mapCanvas.width - FIT_PADDING * 2) / deltaX;
-      const currentScaleY = (this.mapCanvas.height - FIT_PADDING * 2) / deltaY;
-      if (currentScaleX < currentScaleY) {
-        this.currentScale = Math.min(MAX_SCALE, currentScaleX);
-        this.offsetX = -minX * this.currentScale + FIT_PADDING;
-        const midpointY = (minY + maxY) / 2;
-        this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
-      } else {
-        this.currentScale = Math.min(MAX_SCALE, currentScaleY);
-        this.offsetY = -minY * this.currentScale + FIT_PADDING;
-        const midpointX = (minX + maxX) / 2;
-        this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
-      }
-    } else {
-      const currentScaleX = this.mapCanvas.width / MAP_SIZE;
-      const currentScaleY = this.mapCanvas.height / MAP_SIZE;
-      this.currentScale = Math.max(MIN_SCALE, Math.min(currentScaleX, currentScaleY));
-      const midpointY = MAP_SIZE / 2;
-      this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
-      const midpointX = MAP_SIZE / 2;
-      this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
-    }
+    const currentScaleX = this.mapCanvas.width / MAP_SIZE;
+    const currentScaleY = this.mapCanvas.height / MAP_SIZE;
+    this.currentScale = Math.max(MIN_SCALE, Math.min(currentScaleX, currentScaleY));
+    const midpointY = MAP_SIZE / 2;
+    this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
+    const midpointX = MAP_SIZE / 2;
+    this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
 
     this.updateRecenterBtn(true);
   }
@@ -497,12 +540,16 @@ export class MotorTownMap extends HTMLElement {
     }
   }
 
-  private updateHovered(index: number | undefined) {
-    if (this.hoveredIndex !== index) {
-      this.hoveredIndex = index;
+  private updateHovered(id: string | undefined, index: number | undefined) {
+    if (id !== undefined && index !== undefined) {
+      this.hoveredIndex = [id, index];
+    } else {
+      this.hoveredIndex = undefined;
+    }
+    if (this.hoveredIndex?.[0] !== id && this.hoveredIndex?.[1] !== index) {
       const event = new CustomEvent('mt-map:point-hover', {
         bubbles: false,
-        detail: { index: index },
+        detail: { id, index } as { id: string; index: number },
       }) satisfies MotorTownMapEvent['mt-map:point-hover'];
       this.dispatchEvent(event);
     }
@@ -553,13 +600,17 @@ export class MotorTownMap extends HTMLElement {
     const currentX = clientX - rect.left;
     const currentY = clientY - rect.top;
 
-    if (this.isPointDragging && this.selectedIndex !== undefined && this.selectedIndexPoint) {
-      this.selectedIndexPoint.mapPosition.x = (scaled(currentX) - this.offsetX) / this.currentScale;
-      this.selectedIndexPoint.mapPosition.y = (scaled(currentY) - this.offsetY) / this.currentScale;
+    if (this.isPointDragging && this.selectedIndex !== undefined && this.selectedPoint) {
+      this.selectedPoint.mapPosition.x = (scaled(currentX) - this.offsetX) / this.currentScale;
+      this.selectedPoint.mapPosition.y = (scaled(currentY) - this.offsetY) / this.currentScale;
 
       const event = new CustomEvent('mt-map:point-move', {
         bubbles: false,
-        detail: { index: this.selectedIndex, position: unTransformPoint(this.selectedIndexPoint.mapPosition) },
+        detail: {
+          id: this.selectedIndex[0],
+          index: this.selectedIndex[1],
+          position: unTransformPoint(this.selectedPoint.mapPosition),
+        },
       }) satisfies MotorTownMapEvent['mt-map:point-move'];
       this.dispatchEvent(event);
 
@@ -578,28 +629,37 @@ export class MotorTownMap extends HTMLElement {
       return;
     }
 
-    if (this.points) {
+    if (this.groups) {
       const hoverX = scaled(currentX);
       const hoverY = scaled(currentY);
       const selectRadius = baseSelectRadius();
+      const [selectedId, selectedIndex] = this.selectedIndex ?? [];
 
+      let hoveredId: string | undefined;
       let hoveredIndex: number | undefined;
       let closest = Infinity;
-      for (let i = 0; i < this.points.length; i++) {
-        const mp = this.getCanvasPosition(
-          this.selectedIndex === i ? this.selectedIndexPoint!.mapPosition : this.points[i].mapPosition,
-        );
-        const dist = squaredHypot(hoverX - mp.x, hoverY - mp.y);
 
-        if (dist <= selectRadius && dist <= closest) {
-          hoveredIndex = i;
-          closest = dist;
+      const groups = Object.entries(this.groups);
+
+      for (let g = 0; g < groups.length; g++) {
+        const [id, group] = groups[g];
+        for (let i = 0; i < group.points.length; i++) {
+          const mp = this.getCanvasPosition(
+            selectedId === id && selectedIndex === i ? this.selectedPoint!.mapPosition : group.points[i].mapPosition,
+          );
+          const dist = squaredHypot(hoverX - mp.x, hoverY - mp.y);
+
+          if (dist <= selectRadius && dist <= closest) {
+            hoveredId = id;
+            hoveredIndex = i;
+            closest = dist;
+          }
         }
       }
 
-      this.updateHovered(hoveredIndex);
-      if (hoveredIndex !== undefined) {
-        if (this.trackMode && hoveredIndex === this.selectedIndex) {
+      this.updateHovered(hoveredId, hoveredIndex);
+      if (hoveredIndex !== undefined && hoveredId !== undefined) {
+        if (this.groups[hoveredId].draggable && hoveredId === selectedId && hoveredIndex === selectedIndex) {
           this.mapCanvas.style.cursor = 'move';
         } else {
           this.mapCanvas.style.cursor = 'pointer';
@@ -614,15 +674,22 @@ export class MotorTownMap extends HTMLElement {
   private clickEvent = () => {
     // Only proceed if not dragging.
     if (this.isDragging) return;
-    if (!this.points || this.hoveredIndex === undefined || this.selectedIndex === this.hoveredIndex) return;
+    if (
+      !this.groups ||
+      this.hoveredIndex === undefined ||
+      (this.selectedIndex?.[0] === this.hoveredIndex[0] && this.selectedIndex[1] === this.hoveredIndex[1])
+    ) {
+      return;
+    }
+
     this.mapCanvas.style.cursor = 'pointer';
 
     this.selectedIndex = this.hoveredIndex;
-    this.selectedIndexPoint = copyPointSelected(this.points[this.selectedIndex]);
+    this.selectedPoint = copyPointSelected(this.groups[this.selectedIndex[0]].points[this.selectedIndex[1]]);
 
     const event = new CustomEvent('mt-map:point-click', {
       bubbles: false,
-      detail: { index: this.selectedIndex },
+      detail: { id: this.selectedIndex[0], index: this.selectedIndex[1] },
     }) satisfies MotorTownMapEvent['mt-map:point-click'];
     this.dispatchEvent(event);
   };
@@ -634,12 +701,12 @@ export class MotorTownMap extends HTMLElement {
     const clientX = (e as MouseEvent).clientX ?? (e as TouchEvent).touches[0].clientX;
     const clientY = (e as MouseEvent).clientY ?? (e as TouchEvent).touches[0].clientY;
 
-    if (this.points && this.selectedIndexPoint) {
+    if (this.groups && this.selectedIndex && this.groups[this.selectedIndex[0]].draggable && this.selectedPoint) {
       const currentX = scaled(clientX - rect.left);
       const currentY = scaled(clientY - rect.top);
       const selectRadius = baseSelectRadius();
 
-      const mp = this.getCanvasPosition(this.selectedIndexPoint.mapPosition);
+      const mp = this.getCanvasPosition(this.selectedPoint.mapPosition);
       const dist = squaredHypot(currentX - mp.x, currentY - mp.y);
 
       if (dist <= selectRadius) {
@@ -786,40 +853,6 @@ export class MotorTownMap extends HTMLElement {
     this.resizeObserver?.disconnect();
     if (this.animationRequestId !== undefined) {
       window.cancelAnimationFrame(this.animationRequestId);
-    }
-  }
-
-  protected attributeChangedCallback(
-    name: (typeof MotorTownMap.observedAttributes)[number],
-    _: string,
-    newValue: string,
-  ) {
-    switch (name) {
-      case 'track-mode': {
-        const v = newValue.trim();
-        this.trackMode = v !== '0' && v !== 'false';
-        if (this.trackMode) {
-          this.showWpWidthButton.classList.remove('btn--hide');
-        } else {
-          this.showWpWidthButton.classList.add('btn--hide');
-        }
-        break;
-      }
-      case 'point-color': {
-        const v = newValue.trim();
-        this.pointColor = v;
-        break;
-      }
-      case 'point-selected-color': {
-        const v = newValue.trim();
-        this.pointSelectedColor = v;
-        break;
-      }
-      case 'point-hover-color': {
-        const v = newValue.trim();
-        this.pointHoverColor = v;
-        break;
-      }
     }
   }
 }
