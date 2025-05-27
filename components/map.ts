@@ -9,9 +9,20 @@ export type Color = {
   point?: string;
   selected?: string;
   hover?: string;
+  outline?: string;
+  label?: string;
+  labelOutline?: string;
+  arrowColor?: string;
+  gate?: string;
+  gateSelected?: string;
+  gateHover?: string;
 };
 
-export type PointLocal = {
+export type ColorLine = { line?: string };
+
+export type GroupColor = Color & ColorLine;
+
+export type PointBase = {
   position: Vector2;
   yaw?: number;
   scaleY?: number;
@@ -20,24 +31,37 @@ export type PointLocal = {
   label?: string;
 };
 
+export type PointsGroupTrackMode =
+  | {
+      trackMode: true;
+      forceShowGate?: boolean;
+    }
+  | { trackMode?: false };
+
 export type PointsGroupBase<T> = {
   points: T[];
-  color?: Color;
-  trackMode?: boolean;
+  color?: GroupColor;
   draggable?: boolean;
   hidden?: boolean;
-};
+  hoverable?: boolean;
+  selectable?: boolean;
+} & PointsGroupTrackMode;
+
+export type PointLocal = PointBase & { color: Required<Color> };
 
 export type PointsLocalGroup = Required<
-  Omit<PointsGroupBase<PointLocal & { color: Required<Color> }>, 'color' | 'hidden'>
+  Omit<PointsGroupBase<PointLocal>, 'color' | 'hidden'> & {
+    lineColor?: string;
+  } & Pick<Required<PointsGroupTrackMode> & { forceShowGate: boolean }, 'trackMode' | 'forceShowGate'>
 >;
+
 export type PointsLocalGroups = Record<string, PointsLocalGroup>;
 
-export type Point = Omit<PointLocal, 'mapPosition'>;
+export type Point = Omit<PointBase, 'mapPosition'>;
 export type PointsGroup = PointsGroupBase<Point>;
 export type PointsGroups = Record<string, PointsGroup>;
 
-type PointSelected = Omit<PointLocal & { color: Required<Color> }, 'position'>;
+type PointSelected = Omit<PointLocal, 'position'>;
 
 export type Vector2 = {
   x: number;
@@ -92,6 +116,13 @@ function copyPointSelected(point: PointSelected): PointSelected {
       hover: point.color.hover,
       selected: point.color.selected,
       point: point.color.point,
+      arrowColor: point.color.arrowColor,
+      outline: point.color.outline,
+      label: point.color.label,
+      labelOutline: point.color.labelOutline,
+      gate: point.color.gate,
+      gateSelected: point.color.gateSelected,
+      gateHover: point.color.gateHover,
     },
   };
 }
@@ -124,14 +155,24 @@ const baseSelectRadius = () => {
   const r = baseCheckpointRadius() + scaled(3);
   return r * r;
 };
-const pointDefaultColor = {
-  hover: '#fff',
-  point: '#fff',
-  selected: '#fff',
-};
+
+// Individual color variables
+const pointDefaultHover = '#fff';
+const pointDefaultPoint = '#fff';
+const pointDefaultSelected = '#fff';
+const pointDefaultArrowColor = '#F44336';
+const pointDefaultOutline = '#212121';
+const pointDefaultLabel = '#fff';
+const pointDefaultLabelOutline = '#212121';
+const pointDefaultGate = '#FDD835';
+const pointDefaultGateSelected = '#FFEE58';
+const pointDefaultGateHover = '#F57F17';
+const pointDefaultLine = 'rgba(255,255,255,0.3)';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class MotorTownMap extends HTMLElement {
+  static readonly observedAttributes = ['map', 'road'] as const;
+
   private groups: PointsLocalGroups = {};
 
   private hasTrack: boolean = false;
@@ -170,11 +211,15 @@ export class MotorTownMap extends HTMLElement {
     this.groups = {};
     this.hasTrack = false;
     let trackCount = 0;
+    let hasNotForceShowGate = false;
     Object.entries(groups).forEach(([id, group]) => {
       if (group.hidden) return;
 
       if (group.trackMode) {
         this.hasTrack = true;
+        if (!group.forceShowGate) {
+          hasNotForceShowGate = true;
+        }
         trackCount++;
       }
 
@@ -183,18 +228,29 @@ export class MotorTownMap extends HTMLElement {
           ...point,
           mapPosition: transformPoint(point.position),
           color: {
-            point: point.color?.point ?? group.color?.point ?? pointDefaultColor.point,
-            hover: point.color?.hover ?? group.color?.hover ?? pointDefaultColor.hover,
-            selected: point.color?.selected ?? group.color?.selected ?? pointDefaultColor.selected,
+            point: point.color?.point ?? group.color?.point ?? pointDefaultPoint,
+            hover: point.color?.hover ?? group.color?.hover ?? pointDefaultHover,
+            selected: point.color?.selected ?? group.color?.selected ?? pointDefaultSelected,
+            arrowColor: point.color?.arrowColor ?? group.color?.arrowColor ?? pointDefaultArrowColor,
+            outline: point.color?.outline ?? group.color?.outline ?? pointDefaultOutline,
+            label: point.color?.label ?? group.color?.label ?? pointDefaultLabel,
+            labelOutline: point.color?.labelOutline ?? group.color?.labelOutline ?? pointDefaultLabelOutline,
+            gate: point.color?.gate ?? group.color?.gate ?? pointDefaultGate,
+            gateSelected: point.color?.gateSelected ?? group.color?.gateSelected ?? pointDefaultGateSelected,
+            gateHover: point.color?.gateHover ?? group.color?.gateHover ?? pointDefaultGateHover,
           },
         })),
         trackMode: group.trackMode ?? false,
         draggable: group.draggable ?? false,
+        lineColor: group.color?.line ?? pointDefaultLine,
+        forceShowGate: (group.trackMode && group.forceShowGate) ?? false,
+        hoverable: group.hoverable ?? true,
+        selectable: group.selectable ?? true,
       };
     });
     this.hasOneTrackOnly = trackCount === 1;
 
-    if (this.hasTrack) {
+    if (hasNotForceShowGate) {
       this.showWpWidthButton.classList.remove('btn--hide');
     } else {
       this.showWpWidthButton.classList.add('btn--hide');
@@ -353,28 +409,41 @@ export class MotorTownMap extends HTMLElement {
             const mp = this.getCanvasPosition(group.points[i].mapPosition);
             this.mapCanvasCtx.lineTo(mp.x, mp.y);
           }
-          this.mapCanvasCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+          this.mapCanvasCtx.strokeStyle = group.lineColor;
           this.mapCanvasCtx.lineWidth = connectingLineWidth;
           this.mapCanvasCtx.stroke();
         }
 
+        const showWpWidth = this.showWpWidth || group.forceShowGate;
         for (let i = 0; i < group.points.length; i++) {
           const wp = group.points[i];
           const mp = this.getCanvasPosition(wp.mapPosition);
-          const selectedColor = wp.color.selected;
-          const pointColor = wp.color.point;
-          const hoverColor = wp.color.hover;
-          const fillStyle =
-            id === selectedId && i === selectedIndex
+          const selectedColor = showWpWidth ? wp.color.gateSelected : wp.color.selected;
+          const pointColor = showWpWidth ? wp.color.gate : wp.color.point;
+          const hoverColor = showWpWidth ? wp.color.gateHover : wp.color.hover;
+          const color =
+            id === selectedId && i === selectedIndex && group.selectable
               ? selectedColor
-              : id === hoveredId && i === hoveredIndex
+              : id === hoveredId && i === hoveredIndex && group.hoverable
                 ? hoverColor
                 : pointColor;
           if (group.trackMode && id === selectedId && i === selectedIndex) {
             this.mapCanvasCtx.globalAlpha = 0.6;
           }
-          this.drawPoint(wp, mp, fillStyle, lineWidth, radius, arrowHeadLength, wpLength, arrowLength, group.trackMode);
-
+          this.drawPoint(
+            wp,
+            mp,
+            color,
+            wp.color.outline,
+            wp.color.arrowColor,
+            lineWidth,
+            radius,
+            arrowHeadLength,
+            wpLength,
+            arrowLength,
+            group.trackMode,
+            showWpWidth,
+          );
           this.mapCanvasCtx.globalAlpha = 1;
         }
 
@@ -382,7 +451,7 @@ export class MotorTownMap extends HTMLElement {
           const wp = group.points[i];
           if (wp.label) {
             const mp = this.getCanvasPosition(wp.mapPosition);
-            this.drawLabel(mp, lineWidth, radius, wp.label);
+            this.drawLabel(mp, lineWidth, radius, wp.label, wp.color.label, wp.color.labelOutline);
           }
         }
 
@@ -393,15 +462,18 @@ export class MotorTownMap extends HTMLElement {
             wp,
             mp,
             wp.color.selected,
+            wp.color.outline,
+            wp.color.arrowColor,
             lineWidth,
             radius,
             arrowHeadLength,
             wpLength,
             arrowLength,
             group.trackMode,
+            showWpWidth,
           );
           if (wp.label) {
-            this.drawLabel(mp, lineWidth, radius, wp.label);
+            this.drawLabel(mp, lineWidth, radius, wp.label, wp.color.label, wp.color.labelOutline);
           }
         }
       }
@@ -409,18 +481,21 @@ export class MotorTownMap extends HTMLElement {
   };
 
   private drawPoint(
-    wp: Pick<PointLocal, 'yaw' | 'scaleY'>,
+    wp: Pick<PointBase, 'yaw' | 'scaleY'>,
     mp: Vector2,
-    fillStyle: string,
+    pointColor: string,
+    pointOutlineColor: string,
+    arrowColor: string,
     lineWidth: number,
     radius: number,
     arrowHeadLength: number,
     wpLength: number,
     arrowLength: number,
     trackMode: boolean,
+    showWpWidth: boolean,
   ) {
     if (trackMode) {
-      if (this.showWpWidth) {
+      if (showWpWidth) {
         const yaw = wp.yaw ?? 0;
         const scaleY = (((wp.scaleY ?? 0) * 100) / MAP_REAL_SIZE) * MAP_SIZE * this.currentScale;
         const [p1, p2] = rotatePoints(
@@ -437,7 +512,7 @@ export class MotorTownMap extends HTMLElement {
         this.mapCanvasCtx!.beginPath();
         this.mapCanvasCtx!.moveTo(p1.x, p1.y);
         this.mapCanvasCtx!.lineTo(p2.x, p2.y);
-        this.mapCanvasCtx!.strokeStyle = fillStyle;
+        this.mapCanvasCtx!.strokeStyle = pointColor;
         this.mapCanvasCtx!.lineWidth = wpLength * this.currentScale;
         this.mapCanvasCtx!.stroke();
       } else {
@@ -461,27 +536,35 @@ export class MotorTownMap extends HTMLElement {
           toY - arrowHeadLength * Math.sin(angle + Math.PI / 6),
         );
         this.mapCanvasCtx!.closePath();
-        this.mapCanvasCtx!.fillStyle = 'red';
+        this.mapCanvasCtx!.fillStyle = arrowColor;
         this.mapCanvasCtx!.fill();
       }
     }
 
-    if (!trackMode || !this.showWpWidth) {
+    if (!trackMode || !showWpWidth) {
       this.mapCanvasCtx!.beginPath();
       this.mapCanvasCtx!.arc(mp.x, mp.y, radius, 0, 2 * Math.PI);
-      this.mapCanvasCtx!.fillStyle = fillStyle;
+      this.mapCanvasCtx!.fillStyle = pointColor;
       this.mapCanvasCtx!.fill();
-      this.mapCanvasCtx!.strokeStyle = 'black';
+      this.mapCanvasCtx!.strokeStyle = pointOutlineColor;
       this.mapCanvasCtx!.lineWidth = lineWidth;
       this.mapCanvasCtx!.stroke();
     }
   }
 
-  private drawLabel(mp: Vector2, lineWidth: number, radius: number, label: string) {
+  private drawLabel(
+    mp: Vector2,
+    lineWidth: number,
+    radius: number,
+    label: string,
+    labelColor: string,
+    labelOutlineColor: string,
+  ) {
     this.mapCanvasCtx!.font = `${Math.max(14, radius * 1.5)}px sans-serif`;
     this.mapCanvasCtx!.textAlign = 'center';
     this.mapCanvasCtx!.textBaseline = 'bottom';
-    this.mapCanvasCtx!.fillStyle = 'white';
+    this.mapCanvasCtx!.strokeStyle = labelOutlineColor;
+    this.mapCanvasCtx!.fillStyle = labelColor;
     this.mapCanvasCtx!.lineWidth = lineWidth * 2;
     this.mapCanvasCtx!.strokeText(label, mp.x, mp.y - radius - 4);
     this.mapCanvasCtx!.fillText(label, mp.x, mp.y - radius - 4);
@@ -643,6 +726,10 @@ export class MotorTownMap extends HTMLElement {
 
       for (let g = 0; g < groups.length; g++) {
         const [id, group] = groups[g];
+        if (!group.hoverable) {
+          continue;
+        }
+
         for (let i = 0; i < group.points.length; i++) {
           const mp = this.getCanvasPosition(
             selectedId === id && selectedIndex === i ? this.selectedPoint!.mapPosition : group.points[i].mapPosition,
@@ -679,6 +766,10 @@ export class MotorTownMap extends HTMLElement {
       this.hoveredIndex === undefined ||
       (this.selectedIndex?.[0] === this.hoveredIndex[0] && this.selectedIndex[1] === this.hoveredIndex[1])
     ) {
+      return;
+    }
+
+    if (!this.groups[this.hoveredIndex[0]].selectable) {
       return;
     }
 
@@ -743,16 +834,6 @@ export class MotorTownMap extends HTMLElement {
 
   protected connectedCallback() {
     const shadow = this.attachShadow({ mode: 'open' });
-
-    this.mapImage.onload = () => {
-      this.mapLoaded = true;
-    };
-    this.mapImage.src = 'map.png';
-
-    this.roadImage.onload = () => {
-      this.roadLoaded = true;
-    };
-    this.roadImage.src = `road.svg`;
 
     this.mapCanvas.addEventListener('wheel', this.wheelEvent, {
       passive: false,
@@ -853,6 +934,28 @@ export class MotorTownMap extends HTMLElement {
     this.resizeObserver?.disconnect();
     if (this.animationRequestId !== undefined) {
       window.cancelAnimationFrame(this.animationRequestId);
+    }
+  }
+
+  attributeChangedCallback(
+    name: (typeof MotorTownMap)['observedAttributes'][number],
+    oldValue: string | null,
+    newValue: string | null,
+  ) {
+    if (name === 'map' && newValue !== oldValue) {
+      this.mapImage = new Image();
+      this.mapLoaded = false;
+      this.mapImage.onload = () => {
+        this.mapLoaded = true;
+      };
+      this.mapImage.src = newValue ?? '';
+    } else if (name === 'road' && newValue !== oldValue) {
+      this.roadImage = new Image();
+      this.roadLoaded = false;
+      this.roadImage.onload = () => {
+        this.roadLoaded = true;
+      };
+      this.roadImage.src = newValue ?? '';
     }
   }
 }

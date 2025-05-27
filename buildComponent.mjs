@@ -1,8 +1,10 @@
 import * as esbuild from 'esbuild';
 import { copyFileSync } from 'fs';
 import { minify } from 'terser';
-import { writeFileSync, readdirSync, statSync } from 'fs';
+import { writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { gzipSizeFromFile } from 'gzip-size';
+import { stat } from 'fs/promises';
 
 const dev = process.argv.some((arg) => {
   return arg === '--dev';
@@ -31,32 +33,6 @@ const minified = await Promise.all(
           ecma: 2020,
           sourceMap: false,
           module: true,
-          mangle: {
-            properties: {
-              reserved: [
-                'position',
-                'yaw',
-                'scaleY',
-                'zoomFit',
-                'setPoints',
-                'x',
-                'y',
-                'observedAttributes',
-                'setSelectedPointYaw',
-                'setSelectedPointsScaleY',
-                'setSelectedPointsPosition',
-                'color',
-                'point',
-                'selected',
-                'hover',
-                'label',
-                'trackMode',
-                'points',
-                'hidden',
-                'draggable',
-              ],
-            },
-          },
           compress: {
             passes: 2,
           },
@@ -71,11 +47,18 @@ minified.forEach((output, i) => {
 copyFileSync('./components/map.png', './dist/map.png');
 copyFileSync('./components/road.svg', './dist/road.svg');
 
-const resultFile = readdirSync('./dist');
+const resultFile = readdirSync('./dist', {withFileTypes: true})
+  .filter((f) => f.isFile())
+  .map((f) => f.name);
 const longestFileName = resultFile.reduce((a, c) => Math.max(a, c.length), 0);
 
 console.log(`${dev ? 'Dev' : 'Prod'} build complete`);
-resultFile.forEach((file) => {
-  const fStat = statSync(join('./dist', file));
-  console.log(file.padEnd(longestFileName), (fStat.size / 1024).toFixed(2) + ' kb');
-});
+const fileStat = await Promise.all(
+  resultFile.map(async (file) => {
+    const [fStat, gzipSize] = await Promise.all([stat(join('./dist', file)), gzipSizeFromFile(join(import.meta.dirname,'./dist', file))]);
+    return (
+      file.padEnd(longestFileName) + ' ' + (fStat.size / 1024).toFixed(2) + '/' + (gzipSize / 1024).toFixed(2) + ' kb'
+    );
+  }),
+);
+console.log(fileStat.join('\n'));

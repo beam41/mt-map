@@ -12,12 +12,14 @@ mapCanvasElement.setPoints({
       position: data,
     })),
     color: { point: '#FDD835', hover: '#FFF59D', selected: '#F57F17' },
+    hoverable: false,
   },
   bus: {
     points: outBus.map((data) => ({
       position: data.relativeLocation,
     })),
     color: { point: '#7CB342', hover: '#C5E1A5', selected: '#33691E' },
+    selectable: false,
   },
   deliveryPoint: {
     points: outDeliveryPoint.map((data) => ({
