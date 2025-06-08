@@ -1,7 +1,17 @@
 {
   "name": "mt-map",
   "version": "1.0.0",
-  "main": "build.js",
+  "main": "dist/map.js",
+  "module": "dist/map.js",
+  "exports": {
+    ".": {
+      "types": "./dist/map.d.ts",
+      "import": "./dist/map.js"
+    }
+  },
+  "files": [
+    "dist/map.js"
+  ],
   "scripts": {
     "generate:element": "node ./generateElement.mjs",
     "build:component": "rimraf ./dist && tsc --project ./components/tsconfig.json --declaration --emitDeclarationOnly --outDir ./dist/ && node ./buildComponent.mjs",
