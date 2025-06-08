@@ -10,7 +10,8 @@
     }
   },
   "files": [
-    "dist/map.js"
+    "dist/map.js",
+    "dist/map.d.ts"
   ],
   "scripts": {
     "generate:element": "node ./generateElement.mjs",
