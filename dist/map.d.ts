@@ -52,7 +52,7 @@ export type Vector2 = {
     x: number;
     y: number;
 };
-type MotorTownMapEvent = {
+export type MotorTownMapEvent = {
     'mt-map:point-click': CustomEvent<{
         id: string;
         index: number;
@@ -74,6 +74,8 @@ type MotorTownMapEventKey = keyof MotorTownMapEvent;
 export interface MotorTownMap {
     addEventListener<K extends MotorTownMapEventKey>(event: K, listener: (this: MotorTownMap, ev: MotorTownMapEvent[K]) => void, options?: boolean | AddEventListenerOptions): void;
     addEventListener(type: string, callback: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+    removeEventListener<K extends MotorTownMapEventKey>(event: K, listener: (this: MotorTownMap, ev: MotorTownMapEvent[K]) => void, options?: boolean | EventListenerOptions): void;
+    removeEventListener(type: string, callback: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
 }
 export declare class MotorTownMap extends HTMLElement {
     static readonly observedAttributes: readonly ["map", "road"];
@@ -103,9 +105,10 @@ export declare class MotorTownMap extends HTMLElement {
     private selectedIndex;
     private hoveredIndex;
     setPoints(groups: PointsGroups, reset?: boolean): void;
+    setSelectedIndex(id: string | undefined, index: number | undefined): void;
     setSelectedPointYaw(yaw: number): void;
-    setSelectedPointsScaleY(scaleY: number): void;
-    setSelectedPointsPosition(pos: Vector2): void;
+    setSelectedPointScaleY(scaleY: number): void;
+    setSelectedPointPosition(pos: Vector2): void;
     private getCanvasPosition;
     private prevMapLoaded;
     private prevRoadLoaded;

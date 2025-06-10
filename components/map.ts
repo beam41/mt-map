@@ -68,7 +68,7 @@ export type Vector2 = {
   y: number;
 };
 
-type MotorTownMapEvent = {
+export type MotorTownMapEvent = {
   'mt-map:point-click': CustomEvent<{ id: string; index: number }>;
   'mt-map:point-hover': CustomEvent<{ id: undefined; index: undefined } | { id: string; index: number }>;
   'mt-map:point-move': CustomEvent<{ id: string; index: number; position: Vector2 }>;
@@ -89,6 +89,16 @@ export interface MotorTownMap {
     type: string,
     callback: EventListenerOrEventListenerObject,
     options?: boolean | AddEventListenerOptions,
+  ): void;
+  removeEventListener<K extends MotorTownMapEventKey>(
+    event: K,
+    listener: (this: MotorTownMap, ev: MotorTownMapEvent[K]) => void,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  removeEventListener(
+    type: string,
+    callback: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions,
   ): void;
 }
 
@@ -266,19 +276,27 @@ export class MotorTownMap extends HTMLElement {
     }
   }
 
+  setSelectedIndex(id: string | undefined, index: number | undefined) {
+    this.selectedIndex = id !== undefined && index !== undefined ? [id, index] : undefined;
+    if (this.selectedIndex !== undefined) {
+      const [group, index] = this.selectedIndex;
+      this.selectedPoint = copyPointSelected(this.groups[group].points[index]);
+    }
+  }
+
   setSelectedPointYaw(yaw: number) {
     if (this.selectedPoint) {
       this.selectedPoint.yaw = yaw;
     }
   }
 
-  setSelectedPointsScaleY(scaleY: number) {
+  setSelectedPointScaleY(scaleY: number) {
     if (this.selectedPoint) {
       this.selectedPoint.scaleY = scaleY;
     }
   }
 
-  setSelectedPointsPosition(pos: Vector2) {
+  setSelectedPointPosition(pos: Vector2) {
     if (this.selectedPoint) {
       this.selectedPoint.mapPosition = transformPoint(pos);
     }
@@ -595,6 +613,7 @@ export class MotorTownMap extends HTMLElement {
           this.offsetY = -midpointY * this.currentScale + this.mapCanvas.height / 2;
         } else {
           this.currentScale = Math.min(MAX_SCALE, currentScaleY);
+          this.currentScale = Math.min(MAX_SCALE, currentScaleY);
           this.offsetY = -minY * this.currentScale + FIT_PADDING;
           const midpointX = (minX + maxX) / 2;
           this.offsetX = -midpointX * this.currentScale + this.mapCanvas.width / 2;
@@ -894,7 +913,7 @@ export class MotorTownMap extends HTMLElement {
     this.zoomOutButton.className = 'btn zoomOutBtn';
 
     const sheet = new CSSStyleSheet();
-    sheet.insertRule(':host { position: relative; }');
+    sheet.insertRule(':host { position: relative; display: flex; }');
     sheet.insertRule('canvas { width: 100%; height: 100%; }');
     sheet.insertRule(
       '.btn { display: flex; position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); border: none; padding: 4px; border-radius: 4px; cursor: pointer; }',
