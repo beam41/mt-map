@@ -69,7 +69,7 @@ export type Vector2 = {
 };
 
 export type MotorTownMapEvent = {
-  'mt-map:point-click': CustomEvent<{ id: string; index: number }>;
+  'mt-map:point-click': CustomEvent<{ id: undefined; index: undefined } | { id: string; index: number }>;
   'mt-map:point-hover': CustomEvent<{ id: undefined; index: undefined } | { id: string; index: number }>;
   'mt-map:point-move': CustomEvent<{ id: string; index: number; position: Vector2 }>;
 };
@@ -192,8 +192,9 @@ export class MotorTownMap extends HTMLElement {
   private currentScale = 1;
   private offsetX = 0;
   private offsetY = 0;
+  private isGrabbing = false;
+  private isPointGrabbing = false;
   private isDragging = false;
-  private isPointDragging = false;
   private lastX = 0;
   private lastY = 0;
 
@@ -702,7 +703,7 @@ export class MotorTownMap extends HTMLElement {
     const currentX = clientX - rect.left;
     const currentY = clientY - rect.top;
 
-    if (this.isPointDragging && this.selectedIndex !== undefined && this.selectedPoint) {
+    if (this.isPointGrabbing && this.selectedIndex !== undefined && this.selectedPoint) {
       this.selectedPoint.mapPosition.x = (scaled(currentX) - this.offsetX) / this.currentScale;
       this.selectedPoint.mapPosition.y = (scaled(currentY) - this.offsetY) / this.currentScale;
 
@@ -719,7 +720,8 @@ export class MotorTownMap extends HTMLElement {
       return;
     }
 
-    if (this.isDragging) {
+    if (this.isGrabbing) {
+      this.isDragging = true;
       this.mapCanvas.style.cursor = 'grabbing';
       const dx = currentX - this.lastX;
       const dy = currentY - this.lastY;
@@ -779,12 +781,26 @@ export class MotorTownMap extends HTMLElement {
 
   private clickEvent = () => {
     // Only proceed if not dragging.
-    if (this.isDragging) return;
-    if (
-      !this.groups ||
-      this.hoveredIndex === undefined ||
-      (this.selectedIndex?.[0] === this.hoveredIndex[0] && this.selectedIndex[1] === this.hoveredIndex[1])
-    ) {
+    const dragging = this.isDragging;
+    this.isDragging = false;
+    if (dragging) return;
+
+    if (!this.groups) {
+      return;
+    }
+
+    if (this.hoveredIndex === undefined) {
+      this.selectedIndex = undefined;
+      this.selectedPoint = undefined;
+      const event = new CustomEvent('mt-map:point-click', {
+        bubbles: false,
+        detail: { id: undefined, index: undefined },
+      }) satisfies MotorTownMapEvent['mt-map:point-click'];
+      this.dispatchEvent(event);
+      return;
+    }
+
+    if (this.selectedIndex?.[0] === this.hoveredIndex[0] && this.selectedIndex[1] === this.hoveredIndex[1]) {
       return;
     }
 
@@ -805,7 +821,7 @@ export class MotorTownMap extends HTMLElement {
   };
 
   private mouseDownEvent = (e: MouseEvent | TouchEvent) => {
-    this.isDragging = true;
+    this.isGrabbing = true;
 
     const rect = this.mapCanvas.getBoundingClientRect();
     const clientX = (e as MouseEvent).clientX ?? (e as TouchEvent).touches[0].clientX;
@@ -820,7 +836,7 @@ export class MotorTownMap extends HTMLElement {
       const dist = squaredHypot(currentX - mp.x, currentY - mp.y);
 
       if (dist <= selectRadius) {
-        this.isPointDragging = true;
+        this.isPointGrabbing = true;
       }
     }
 
@@ -829,8 +845,8 @@ export class MotorTownMap extends HTMLElement {
   };
 
   private mouseUpEvent = () => {
-    this.isDragging = false;
-    this.isPointDragging = false;
+    this.isGrabbing = false;
+    this.isPointGrabbing = false;
   };
 
   private resizeEvent = () => {

@@ -54,6 +54,9 @@ export type Vector2 = {
 };
 export type MotorTownMapEvent = {
     'mt-map:point-click': CustomEvent<{
+        id: undefined;
+        index: undefined;
+    } | {
         id: string;
         index: number;
     }>;
@@ -86,8 +89,9 @@ export declare class MotorTownMap extends HTMLElement {
     private currentScale;
     private offsetX;
     private offsetY;
+    private isGrabbing;
+    private isPointGrabbing;
     private isDragging;
-    private isPointDragging;
     private lastX;
     private lastY;
     private mapCanvas;
